@@ -126,6 +126,9 @@ fn git(dir: &Path, args: &[&str]) {
         .arg(dir)
         .args(["-c", "user.name=test", "-c", "user.email=test@example.com"])
         .args(["-c", "commit.gpgsign=false", "-c", "core.autocrlf=false"])
+        // `git commit` otherwise starts background maintenance, which adds and
+        // removes files in `.git` while a test is comparing them.
+        .args(["-c", "maintenance.auto=false", "-c", "gc.auto=0"])
         .args(args)
         .env("GIT_AUTHOR_DATE", OLD_DATE)
         .env("GIT_COMMITTER_DATE", OLD_DATE)

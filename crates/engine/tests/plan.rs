@@ -39,6 +39,9 @@ fn git(dir: &Path, args: &[&str]) {
         .arg(dir)
         .args(["-c", "user.name=test", "-c", "user.email=test@example.com"])
         .args(["-c", "commit.gpgsign=false", "-c", "core.autocrlf=false"])
+        // `git commit` otherwise starts background maintenance, which adds and
+        // removes files in `.git` while a test is comparing them.
+        .args(["-c", "maintenance.auto=false", "-c", "gc.auto=0"])
         .args(args)
         .env("GIT_AUTHOR_DATE", OLD_DATE)
         .env("GIT_COMMITTER_DATE", OLD_DATE)
@@ -532,7 +535,8 @@ fn snapshot(root: &Path) -> BTreeMap<PathBuf, (u64, SystemTime)> {
     let mut seen = BTreeMap::new();
     let mut pending = vec![root.to_owned()];
     while let Some(path) = pending.pop() {
-        let meta = fs::symlink_metadata(&path).unwrap();
+        let meta = fs::symlink_metadata(&path)
+            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
         seen.insert(path.clone(), (meta.len(), meta.modified().unwrap()));
         if meta.is_dir() {
             pending.extend(fs::read_dir(&path).unwrap().map(|e| e.unwrap().path()));
