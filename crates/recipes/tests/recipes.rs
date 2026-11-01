@@ -9,8 +9,7 @@ use gigsift_recipes::{Platform, RecipeError, RecipeSet};
 use tempfile::tempdir;
 
 fn shipped() -> RecipeSet {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../recipes");
-    RecipeSet::load_dir(&dir).unwrap()
+    RecipeSet::builtin()
 }
 
 fn touch(root: &Path, relative: &str) -> PathBuf {
@@ -47,6 +46,35 @@ fn shipped_recipes_load_and_never_recommend_hard_delete() {
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].1.recipe.action, Action::MoveToTrash);
     }
+}
+
+#[test]
+fn every_recipe_file_is_built_in() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("recipes");
+    assert_eq!(RecipeSet::load_dir(&dir).unwrap().len(), shipped().len());
+}
+
+#[test]
+fn match_path_finds_the_outermost_recognized_directory() {
+    let dir = tempdir().unwrap();
+    touch(dir.path(), "app/package.json");
+    let inner = touch(
+        dir.path(),
+        "app/node_modules/dep/node_modules/x/package.json",
+    );
+
+    let set = shipped();
+    let (matched, hit) = set.match_path(&inner, Platform::Macos).unwrap();
+
+    assert_eq!(matched, dir.path().join("app/node_modules"));
+    assert_eq!(hit.recipe.id, "node-modules");
+}
+
+#[test]
+fn match_path_ignores_unrecognized_paths() {
+    let dir = tempdir().unwrap();
+    let file = touch(dir.path(), "app/src/main.rs");
+    assert!(shipped().match_path(&file, Platform::Macos).is_none());
 }
 
 #[test]

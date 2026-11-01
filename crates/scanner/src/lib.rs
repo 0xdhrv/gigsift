@@ -13,8 +13,8 @@ use std::sync::Mutex;
 
 use gigsift_core::probe::{CloneInfo, FileId, FileProbe};
 use gigsift_core::{
-    CompletenessStatus, EntryKind, InaccessiblePath, InaccessibleReason, ScanCompleteness,
-    ScanMeta, Totals, Warning, WarningCode,
+    CompletenessStatus, EntryKind, InaccessiblePath, InaccessibleReason, PathKind,
+    ScanCompleteness, ScanMeta, Totals, Warning, WarningCode,
 };
 use jiff::Timestamp;
 
@@ -88,6 +88,11 @@ pub fn scan(root: &Path, options: &ScanOptions) -> Result<Scan, RootError> {
     if !meta.is_dir() {
         return Err(root_error("not a directory".to_owned()));
     }
+    if platform::is_placeholder(&meta) {
+        return Err(root_error(
+            "cloud placeholder folder; listing it would download it".to_owned(),
+        ));
+    }
     fs::read_dir(&root).map_err(|e| root_error(e.to_string()))?;
 
     let walker = Walker {
@@ -100,6 +105,92 @@ pub fn scan(root: &Path, options: &ScanOptions) -> Result<Scan, RootError> {
     rayon::scope(|s| walker.visit(s, 0, root.clone()));
     let state = walker.state.into_inner().expect("walker thread panicked");
     Ok(finish(root, state, options.keep_files_from_bytes))
+}
+
+/// What one path is and how much it holds. Symlinks are described, not followed.
+#[derive(Debug)]
+pub struct Inspection {
+    pub kind: PathKind,
+    pub symlink_target: Option<PathBuf>,
+    pub logical_bytes: u64,
+    pub allocated_bytes: u64,
+    pub hard_links: u32,
+    pub shares_blocks: bool,
+    pub cloud_placeholder: bool,
+    pub meta: ScanMeta,
+}
+
+pub fn inspect(path: &Path) -> Result<Inspection, RootError> {
+    let root_error = |message: String| RootError {
+        path: path.to_owned(),
+        message,
+    };
+    let meta = fs::symlink_metadata(path).map_err(|e| root_error(e.to_string()))?;
+    let kind = meta.file_type();
+    if kind.is_symlink() {
+        let target = fs::read_link(path).map_err(|e| root_error(e.to_string()))?;
+        return Ok(Inspection {
+            symlink_target: Some(target),
+            ..single_entry(PathKind::Symlink)
+        });
+    }
+    if kind.is_dir() {
+        if platform::is_placeholder(&meta) {
+            return Ok(Inspection {
+                cloud_placeholder: true,
+                ..single_entry(PathKind::Directory)
+            });
+        }
+        let result = scan(path, &ScanOptions::default())?;
+        return Ok(Inspection {
+            logical_bytes: result.totals.logical_bytes,
+            allocated_bytes: result.totals.allocated_bytes,
+            shares_blocks: result.totals.clones > 0,
+            meta: result.meta,
+            ..single_entry(PathKind::Directory)
+        });
+    }
+    let probe = platform::probe_file(path, &meta);
+    let shares_blocks = probe
+        .clone
+        .is_some_and(|clone| clone.private_bytes < probe.allocated_bytes);
+    let path_kind = if kind.is_file() {
+        PathKind::File
+    } else {
+        PathKind::Other
+    };
+    Ok(Inspection {
+        logical_bytes: meta.len(),
+        allocated_bytes: probe.allocated_bytes,
+        hard_links: probe.links,
+        shares_blocks,
+        cloud_placeholder: probe.placeholder,
+        ..single_entry(path_kind)
+    })
+}
+
+fn single_entry(kind: PathKind) -> Inspection {
+    Inspection {
+        kind,
+        symlink_target: None,
+        logical_bytes: 0,
+        allocated_bytes: 0,
+        hard_links: 1,
+        shares_blocks: false,
+        cloud_placeholder: false,
+        meta: ScanMeta {
+            scanned_at: Timestamp::now(),
+            scan_completeness: ScanCompleteness {
+                status: CompletenessStatus::Complete,
+                directories_visited: 0,
+                directories_unreadable: 0,
+                entries_unreadable: 0,
+                mount_points_skipped: 0,
+            },
+            inaccessible_paths: Vec::new(),
+            warnings: Vec::new(),
+        },
+    }
 }
 
 /// `/` on macOS spans the system volume and the firmlinked data volume, so there

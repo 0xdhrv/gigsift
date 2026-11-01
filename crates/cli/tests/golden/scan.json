@@ -5,13 +5,13 @@
       {
         "allocated_bytes": "<allocated>",
         "kind": "directory",
-        "logical_bytes": 2210000,
+        "logical_bytes": 2210010,
         "path": "<root>"
       },
       {
         "allocated_bytes": "<allocated>",
         "kind": "directory",
-        "logical_bytes": 2210000,
+        "logical_bytes": 2210010,
         "path": "<root>/app"
       },
       {
@@ -45,9 +45,9 @@
       "clones": 0,
       "cloud_placeholders": 0,
       "directories": 6,
-      "files": 3,
+      "files": 5,
       "hard_link_duplicates": 1,
-      "logical_bytes": 2210000,
+      "logical_bytes": 2210010,
       "symlinks": 0
     }
   },

@@ -43,6 +43,8 @@ fn fixture() -> TempDir {
     .unwrap();
     fs::write(root.join("media/clip.mov"), vec![b'x'; 2_000_000]).unwrap();
     fs::hard_link(root.join("media/clip.mov"), root.join("app/clip-link.mov")).unwrap();
+    fs::write(root.join("app/package.json"), "{}").unwrap();
+    fs::write(root.join("app/.env"), "SECRET=1").unwrap();
     dir
 }
 
@@ -98,6 +100,51 @@ fn top_json_matches_golden() {
     let root = dir.path().to_str().unwrap();
     let output = gigsift(&["top", root, "--min-size", "100kb", "--limit", "3", "--json"]);
     check_golden("top", &output, dir.path());
+}
+
+/// Explain reports resolved paths, so the fixture root must be resolved too.
+fn resolved_root(dir: &TempDir) -> PathBuf {
+    let root = fs::canonicalize(dir.path()).unwrap();
+    let text = root.to_string_lossy();
+    PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text))
+}
+
+fn explain_golden(name: &str, relative: &str) {
+    let dir = fixture();
+    let root = resolved_root(&dir);
+    let target = root.join(relative);
+    let output = gigsift(&["explain", target.to_str().unwrap(), "--json"]);
+    check_golden(name, &output, &root);
+}
+
+#[test]
+fn explain_json_for_a_recognized_directory_matches_golden() {
+    explain_golden("explain-recognized", "app/node_modules");
+}
+
+#[test]
+fn explain_json_for_an_unknown_file_matches_golden() {
+    explain_golden("explain-unknown", "app/src/main.ts");
+}
+
+#[test]
+fn explain_json_for_a_protected_file_matches_golden() {
+    explain_golden("explain-protected", "app/.env");
+}
+
+#[test]
+fn explain_text_never_calls_anything_safe_to_remove() {
+    let dir = fixture();
+    let root = resolved_root(&dir);
+    let target = root.join("app/node_modules");
+
+    let output = gigsift(&["explain", target.to_str().unwrap()]);
+
+    assert!(output.status.success(), "{output:?}");
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("Review required"), "{text}");
+    assert!(text.contains("Not checked yet"), "{text}");
+    assert!(text.contains("npm install"), "{text}");
 }
 
 #[test]

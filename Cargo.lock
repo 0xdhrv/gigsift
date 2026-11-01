@@ -375,6 +375,8 @@ dependencies = [
  "anyhow",
  "clap",
  "gigsift-core",
+ "gigsift-engine",
+ "gigsift-recipes",
  "gigsift-scanner",
  "jiff",
  "jsonschema",
@@ -392,6 +394,16 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "gigsift-engine"
+version = "0.1.0"
+dependencies = [
+ "gigsift-core",
+ "gigsift-recipes",
+ "gigsift-scanner",
+ "tempfile",
 ]
 
 [[package]]

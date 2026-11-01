@@ -102,3 +102,14 @@ pub enum Action {
     ReportOnly,
     GuidedTool,
 }
+
+/// Conditions that veto a candidate. Recipes declare them; the planner checks them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Protection {
+    InsideActiveProject,
+    /// Git tracks something in here, so it is source, whatever its name says.
+    ContainsGitTrackedFiles,
+    /// Untracked and not ignored. Never assumed to be disposable.
+    ContainsUntrackedWork,
+}

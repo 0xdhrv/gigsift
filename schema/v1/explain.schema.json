@@ -1,0 +1,501 @@
+{
+  "$defs": {
+    "Action": {
+      "description": "The fixed allow-list of things a recipe may recommend. There is deliberately\nno variant that carries a command.",
+      "enum": [
+        "move_to_trash",
+        "report_only",
+        "guided_tool"
+      ],
+      "type": "string"
+    },
+    "Category": {
+      "enum": [
+        "developer_dependency",
+        "build_artifact",
+        "python_environment",
+        "package_cache",
+        "tool_cache",
+        "model_cache"
+      ],
+      "type": "string"
+    },
+    "CompletenessStatus": {
+      "oneOf": [
+        {
+          "const": "complete",
+          "description": "Every entry under the root was visited.",
+          "type": "string"
+        },
+        {
+          "const": "partial",
+          "description": "Something could not be read, so totals are a lower bound.",
+          "type": "string"
+        }
+      ]
+    },
+    "ExplainData": {
+      "additionalProperties": false,
+      "description": "`data` for `gigsift explain`.",
+      "properties": {
+        "allocated_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cloud_placeholder": {
+          "type": "boolean"
+        },
+        "hard_links": {
+          "description": "Above 1, removing this path frees nothing until the other names go too.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/PathKind"
+        },
+        "logical_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "description": "Absolute, with symlinks in parent folders resolved.",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The nearest project around this path."
+        },
+        "recognized": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Recognition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Absent when no recipe knows this path. That is not evidence it is junk."
+        },
+        "safety": {
+          "$ref": "#/$defs/Safety"
+        },
+        "shares_blocks": {
+          "description": "Some of this storage is shared with an APFS clone, so removal frees less.",
+          "type": "boolean"
+        },
+        "symlink_target": {
+          "description": "Set for symlinks, which are described but never followed.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "kind",
+        "logical_bytes",
+        "allocated_bytes",
+        "hard_links",
+        "shares_blocks",
+        "cloud_placeholder",
+        "safety"
+      ],
+      "type": "object"
+    },
+    "InaccessiblePath": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "description": "OS error text, for humans. Not stable across platforms or locales.",
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/InaccessibleReason"
+        }
+      },
+      "required": [
+        "path",
+        "reason",
+        "detail"
+      ],
+      "type": "object"
+    },
+    "InaccessibleReason": {
+      "enum": [
+        "permission_denied",
+        "not_found",
+        "path_too_long",
+        "other"
+      ],
+      "type": "string"
+    },
+    "NetworkCost": {
+      "enum": [
+        "none",
+        "low",
+        "high"
+      ],
+      "type": "string"
+    },
+    "PathKind": {
+      "enum": [
+        "file",
+        "directory",
+        "symlink",
+        "other"
+      ],
+      "type": "string"
+    },
+    "ProjectInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "marker": {
+          "description": "The file or folder that identified it, such as `Cargo.toml`.",
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "root",
+        "marker"
+      ],
+      "type": "object"
+    },
+    "ProtectedReason": {
+      "oneOf": [
+        {
+          "const": "system",
+          "description": "Part of the operating system.",
+          "type": "string"
+        },
+        {
+          "const": "credentials",
+          "description": "Holds keys, tokens, or other secrets.",
+          "type": "string"
+        },
+        {
+          "const": "git_metadata",
+          "description": "Repository history, which may hold unpushed work.",
+          "type": "string"
+        },
+        {
+          "const": "user_root",
+          "description": "A filesystem root or the home folder itself.",
+          "type": "string"
+        },
+        {
+          "const": "cloud_placeholder",
+          "description": "Content lives in the cloud, so removal frees nothing and may lose data.",
+          "type": "string"
+        }
+      ]
+    },
+    "Protection": {
+      "description": "Conditions that veto a candidate. Recipes declare them; the planner checks them.",
+      "oneOf": [
+        {
+          "enum": [
+            "inside_active_project"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "contains_git_tracked_files",
+          "description": "Git tracks something in here, so it is source, whatever its name says.",
+          "type": "string"
+        },
+        {
+          "const": "contains_untracked_work",
+          "description": "Untracked and not ignored. Never assumed to be disposable.",
+          "type": "string"
+        }
+      ]
+    },
+    "RebuildCost": {
+      "additionalProperties": false,
+      "properties": {
+        "network": {
+          "$ref": "#/$defs/NetworkCost"
+        },
+        "time": {
+          "$ref": "#/$defs/RebuildTime"
+        }
+      },
+      "required": [
+        "time",
+        "network"
+      ],
+      "type": "object"
+    },
+    "RebuildTime": {
+      "enum": [
+        "seconds",
+        "minutes",
+        "hours"
+      ],
+      "type": "string"
+    },
+    "Recognition": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "$ref": "#/$defs/Category"
+        },
+        "loses": {
+          "type": "string"
+        },
+        "matched_path": {
+          "description": "The recognized directory, which may be a parent of `path`.",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "rebuild_cost": {
+          "$ref": "#/$defs/RebuildCost"
+        },
+        "recipe_id": {
+          "type": "string"
+        },
+        "recommended_action": {
+          "$ref": "#/$defs/Action"
+        },
+        "regenerate": {
+          "description": "Guidance for a human. gigsift never executes this text.",
+          "type": "string"
+        },
+        "risk": {
+          "$ref": "#/$defs/Risk"
+        }
+      },
+      "required": [
+        "recipe_id",
+        "name",
+        "matched_path",
+        "category",
+        "reason",
+        "loses",
+        "regenerate",
+        "rebuild_cost",
+        "risk",
+        "recommended_action"
+      ],
+      "type": "object"
+    },
+    "Risk": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "type": "string"
+    },
+    "Safety": {
+      "additionalProperties": false,
+      "properties": {
+        "checks_pending": {
+          "description": "Conditions that must be verified before this could become a candidate.",
+          "items": {
+            "$ref": "#/$defs/Protection"
+          },
+          "type": "array"
+        },
+        "protected_because": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProtectedReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Set exactly when the verdict is `protected`."
+        },
+        "summary": {
+          "type": "string"
+        },
+        "verdict": {
+          "$ref": "#/$defs/SafetyVerdict"
+        }
+      },
+      "required": [
+        "verdict",
+        "summary",
+        "checks_pending"
+      ],
+      "type": "object"
+    },
+    "SafetyVerdict": {
+      "description": "There is deliberately no `safe` verdict: only a plan, revalidated at apply\ntime, can establish that.",
+      "oneOf": [
+        {
+          "const": "protected",
+          "description": "Never a cleanup candidate.",
+          "type": "string"
+        },
+        {
+          "const": "review_required",
+          "description": "A recipe knows this path, but its checks have not run.",
+          "type": "string"
+        },
+        {
+          "const": "unknown",
+          "description": "gigsift does not know what this is. Do not assume it is disposable.",
+          "type": "string"
+        }
+      ]
+    },
+    "ScanCompleteness": {
+      "additionalProperties": false,
+      "properties": {
+        "directories_unreadable": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "directories_visited": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "entries_unreadable": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "mount_points_skipped": {
+          "description": "Directories on another volume, left out of totals. Not a failure.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/$defs/CompletenessStatus"
+        }
+      },
+      "required": [
+        "status",
+        "directories_visited",
+        "directories_unreadable",
+        "entries_unreadable",
+        "mount_points_skipped"
+      ],
+      "type": "object"
+    },
+    "Warning": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/WarningCode"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "WarningCode": {
+      "oneOf": [
+        {
+          "const": "incomplete_scan",
+          "description": "Totals are a lower bound because some paths could not be read.",
+          "type": "string"
+        },
+        {
+          "const": "full_disk_access_missing",
+          "description": "macOS privacy protection blocked paths; Full Disk Access would reveal them.",
+          "type": "string"
+        },
+        {
+          "const": "changed_during_scan",
+          "description": "Files changed or vanished while being scanned.",
+          "type": "string"
+        },
+        {
+          "const": "non_unicode_paths",
+          "description": "Some paths are not valid Unicode and are shown lossily.",
+          "type": "string"
+        },
+        {
+          "const": "cloud_placeholders",
+          "description": "Files whose content lives in the cloud take little or no local space.",
+          "type": "string"
+        },
+        {
+          "const": "diverged_clones",
+          "description": "Files modified since cloning still share blocks that cannot be attributed,\nso allocated bytes may overcount.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Fields every top-level response carries, wrapped around command-specific data.\n\nTotals are never reported without these: a number with no completeness or\nfreshness attached is not honest about what it covers.",
+  "properties": {
+    "command": {
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/ExplainData"
+    },
+    "inaccessible_paths": {
+      "items": {
+        "$ref": "#/$defs/InaccessiblePath"
+      },
+      "type": "array"
+    },
+    "scan_completeness": {
+      "$ref": "#/$defs/ScanCompleteness"
+    },
+    "scanned_at": {
+      "description": "When the scan behind this response finished.",
+      "type": "string"
+    },
+    "schema_version": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "warnings": {
+      "items": {
+        "$ref": "#/$defs/Warning"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command",
+    "scanned_at",
+    "scan_completeness",
+    "inaccessible_paths",
+    "warnings",
+    "data"
+  ],
+  "title": "Envelope",
+  "type": "object"
+}

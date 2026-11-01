@@ -10,6 +10,8 @@ use gigsift_core::{
     EntryKind, Envelope, ErrorBody, ErrorCode, ErrorResponse, SCHEMA_VERSION, ScanData, SizedEntry,
     TopData,
 };
+use gigsift_engine::explain;
+use gigsift_recipes::RecipeSet;
 use gigsift_scanner::{Entry, ScanOptions, scan};
 use serde::Serialize;
 
@@ -46,6 +48,14 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Say what a path is, what it belongs to, and whether it is safe. Read-only.
+    Explain {
+        /// File or directory to explain.
+        path: PathBuf,
+        /// Print the versioned JSON contract instead of text.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -53,6 +63,7 @@ fn main() -> ExitCode {
     let (name, json) = match &cli.command {
         Command::Scan { json, .. } => ("scan", *json),
         Command::Top { json, .. } => ("top", *json),
+        Command::Explain { json, .. } => ("explain", *json),
     };
     match run(cli.command) {
         Ok(()) => ExitCode::SUCCESS,
@@ -72,6 +83,7 @@ fn run(command: Command) -> Result<()> {
             limit,
             json,
         } => run_top(path, min_size, limit, json),
+        Command::Explain { path, json } => run_explain(&path, json),
     }
 }
 
@@ -122,6 +134,16 @@ fn run_top(path: Option<PathBuf>, min_size: u64, limit: usize, json: bool) -> Re
         print_json(&envelope)
     } else {
         human::print_top(&envelope);
+        Ok(())
+    }
+}
+
+fn run_explain(path: &Path, json: bool) -> Result<()> {
+    let envelope = explain(path, &RecipeSet::builtin())?;
+    if json {
+        print_json(&envelope)
+    } else {
+        human::print_explain(&envelope);
         Ok(())
     }
 }

@@ -1,0 +1,53 @@
+{
+  "command": "explain",
+  "data": {
+    "allocated_bytes": "<allocated>",
+    "cloud_placeholder": false,
+    "hard_links": 1,
+    "kind": "directory",
+    "logical_bytes": 200000,
+    "path": "<root>/app/node_modules",
+    "project": {
+      "marker": "package.json",
+      "root": "<root>/app"
+    },
+    "recognized": {
+      "category": "developer_dependency",
+      "loses": "Installed packages, plus any local edits made inside them",
+      "matched_path": "<root>/app/node_modules",
+      "name": "Node.js dependencies",
+      "reason": "Reinstallable dependencies declared by package.json",
+      "rebuild_cost": {
+        "network": "high",
+        "time": "minutes"
+      },
+      "recipe_id": "node-modules",
+      "recommended_action": "move_to_trash",
+      "regenerate": "npm install",
+      "risk": "low"
+    },
+    "safety": {
+      "checks_pending": [
+        "inside_active_project",
+        "contains_git_tracked_files",
+        "contains_untracked_work"
+      ],
+      "protected_because": null,
+      "summary": "Recognized, but its safety checks have not run. Do not treat it as safe to remove.",
+      "verdict": "review_required"
+    },
+    "shares_blocks": false,
+    "symlink_target": null
+  },
+  "inaccessible_paths": [],
+  "scan_completeness": {
+    "directories_unreadable": 0,
+    "directories_visited": 2,
+    "entries_unreadable": 0,
+    "mount_points_skipped": 0,
+    "status": "complete"
+  },
+  "scanned_at": "<timestamp>",
+  "schema_version": 1,
+  "warnings": []
+}

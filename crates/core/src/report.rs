@@ -2,7 +2,7 @@ use jiff::Timestamp;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::SCHEMA_VERSION;
+use crate::{Action, Category, ProtectedReason, Protection, RebuildCost, Risk, SCHEMA_VERSION};
 
 /// Fields every top-level response carries, wrapped around command-specific data.
 ///
@@ -167,6 +167,87 @@ pub struct SizedEntry {
 pub enum EntryKind {
     File,
     Directory,
+}
+
+/// `data` for `gigsift explain`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ExplainData {
+    /// Absolute, with symlinks in parent folders resolved.
+    pub path: String,
+    pub kind: PathKind,
+    /// Set for symlinks, which are described but never followed.
+    pub symlink_target: Option<String>,
+    pub logical_bytes: u64,
+    pub allocated_bytes: u64,
+    /// Above 1, removing this path frees nothing until the other names go too.
+    pub hard_links: u32,
+    /// Some of this storage is shared with an APFS clone, so removal frees less.
+    pub shares_blocks: bool,
+    pub cloud_placeholder: bool,
+    /// The nearest project around this path.
+    pub project: Option<ProjectInfo>,
+    /// Absent when no recipe knows this path. That is not evidence it is junk.
+    pub recognized: Option<Recognition>,
+    pub safety: Safety,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PathKind {
+    File,
+    Directory,
+    Symlink,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectInfo {
+    pub root: String,
+    /// The file or folder that identified it, such as `Cargo.toml`.
+    pub marker: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Recognition {
+    pub recipe_id: String,
+    pub name: String,
+    /// The recognized directory, which may be a parent of `path`.
+    pub matched_path: String,
+    pub category: Category,
+    pub reason: String,
+    pub loses: String,
+    /// Guidance for a human. gigsift never executes this text.
+    pub regenerate: String,
+    pub rebuild_cost: RebuildCost,
+    pub risk: Risk,
+    pub recommended_action: Action,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Safety {
+    pub verdict: SafetyVerdict,
+    /// Set exactly when the verdict is `protected`.
+    pub protected_because: Option<ProtectedReason>,
+    pub summary: String,
+    /// Conditions that must be verified before this could become a candidate.
+    pub checks_pending: Vec<Protection>,
+}
+
+/// There is deliberately no `safe` verdict: only a plan, revalidated at apply
+/// time, can establish that.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SafetyVerdict {
+    /// Never a cleanup candidate.
+    Protected,
+    /// A recipe knows this path, but its checks have not run.
+    ReviewRequired,
+    /// gigsift does not know what this is. Do not assume it is disposable.
+    Unknown,
 }
 
 /// Replaces the envelope when a command cannot produce a result at all.

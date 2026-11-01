@@ -8,12 +8,28 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use gigsift_core::{Action, Category, RebuildCost, Risk};
+use gigsift_core::{Action, Category, Protection, RebuildCost, Risk};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 
 /// Version of the recipe file format, independent of the JSON contract.
 pub const FORMAT_VERSION: u32 = 1;
+
+/// Compiled into the binary, so an installed gigsift needs no data files.
+const BUILTIN: &[(&str, &str)] = &[
+    (
+        "node-modules.toml",
+        include_str!("../recipes/node-modules.toml"),
+    ),
+    (
+        "python-venv.toml",
+        include_str!("../recipes/python-venv.toml"),
+    ),
+    (
+        "rust-target.toml",
+        include_str!("../recipes/rust-target.toml"),
+    ),
+];
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -69,17 +85,6 @@ pub struct Protect {
     pub when: Vec<Protection>,
 }
 
-/// Conditions that veto a candidate. Checked by the planner, not the matcher.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Protection {
-    InsideActiveProject,
-    /// Git tracks something in here, so it is source, whatever its name says.
-    ContainsGitTrackedFiles,
-    /// Untracked and not ignored. Never assumed to be disposable.
-    ContainsUntrackedWork,
-}
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Explain {
@@ -132,6 +137,15 @@ pub struct Match<'a> {
 }
 
 impl RecipeSet {
+    /// The recipes shipped with gigsift. Tests prove these all load.
+    pub fn builtin() -> Self {
+        let mut set = Self::default();
+        for (name, text) in BUILTIN {
+            set.add(text, name).expect("built-in recipe is invalid");
+        }
+        set
+    }
+
     /// Loads every `*.toml` in `dir`, in name order.
     pub fn load_dir(dir: &Path) -> Result<Self, RecipeError> {
         let read_error = |source| RecipeError::Read {
@@ -197,6 +211,16 @@ impl RecipeSet {
             recipe,
             regenerate: regenerate_hint(recipe, path),
         })
+    }
+
+    /// The outermost recognized directory at or above `path`, so a file deep in
+    /// `node_modules` belongs to that `node_modules`, matching what [`Self::find`]
+    /// would report. Symlinks are not directories here.
+    pub fn match_path(&self, path: &Path, platform: Platform) -> Option<(PathBuf, Match<'_>)> {
+        path.ancestors()
+            .filter(|dir| fs::symlink_metadata(dir).is_ok_and(|meta| meta.is_dir()))
+            .filter_map(|dir| Some((dir.to_owned(), self.match_dir(dir, platform)?)))
+            .last()
     }
 
     /// Walks `root` for matches without descending into one, so a package's own

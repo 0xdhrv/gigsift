@@ -1,0 +1,18 @@
+[package]
+name = "gigsift-engine"
+description = "Operations shared by the gigsift CLI, MCP server, and Raycast extension"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gigsift-core.workspace = true
+gigsift-recipes.workspace = true
+gigsift-scanner.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

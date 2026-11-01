@@ -1,0 +1,35 @@
+{
+  "command": "explain",
+  "data": {
+    "allocated_bytes": "<allocated>",
+    "cloud_placeholder": false,
+    "hard_links": 1,
+    "kind": "file",
+    "logical_bytes": 10000,
+    "path": "<root>/app/src/main.ts",
+    "project": {
+      "marker": "package.json",
+      "root": "<root>/app"
+    },
+    "recognized": null,
+    "safety": {
+      "checks_pending": [],
+      "protected_because": null,
+      "summary": "gigsift does not recognize this. That does not mean it is disposable.",
+      "verdict": "unknown"
+    },
+    "shares_blocks": false,
+    "symlink_target": null
+  },
+  "inaccessible_paths": [],
+  "scan_completeness": {
+    "directories_unreadable": 0,
+    "directories_visited": 0,
+    "entries_unreadable": 0,
+    "mount_points_skipped": 0,
+    "status": "complete"
+  },
+  "scanned_at": "<timestamp>",
+  "schema_version": 1,
+  "warnings": []
+}

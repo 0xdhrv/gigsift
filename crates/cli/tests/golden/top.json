@@ -5,13 +5,13 @@
       {
         "allocated_bytes": "<allocated>",
         "kind": "directory",
-        "logical_bytes": 2210000,
+        "logical_bytes": 2210010,
         "path": "<root>"
       },
       {
         "allocated_bytes": "<allocated>",
         "kind": "directory",
-        "logical_bytes": 2210000,
+        "logical_bytes": 2210010,
         "path": "<root>/app"
       },
       {
