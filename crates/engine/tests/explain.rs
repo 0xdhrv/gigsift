@@ -62,8 +62,8 @@ fn a_file_inside_a_recognized_directory_belongs_to_the_outer_project() {
 
     let recognized = data.recognized.unwrap();
     assert_eq!(
-        recognized.matched_path,
-        root.join("app/node_modules").to_string_lossy()
+        Path::new(&recognized.matched_path),
+        root.join("app/node_modules")
     );
     let project = data.project.unwrap();
     assert_eq!(project.root, root.join("app").to_string_lossy());
