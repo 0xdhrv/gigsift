@@ -3,37 +3,37 @@
   "data": {
     "largest_directories": [
       {
-        "allocated_bytes": "<allocated>",
+        "allocated_bytes": "<machine>",
         "kind": "directory",
         "logical_bytes": 2210010,
         "path": "<root>"
       },
       {
-        "allocated_bytes": "<allocated>",
+        "allocated_bytes": "<machine>",
         "kind": "directory",
         "logical_bytes": 2210010,
         "path": "<root>/app"
       },
       {
-        "allocated_bytes": "<allocated>",
+        "allocated_bytes": "<machine>",
         "kind": "directory",
         "logical_bytes": 200000,
         "path": "<root>/app/node_modules"
       },
       {
-        "allocated_bytes": "<allocated>",
+        "allocated_bytes": "<machine>",
         "kind": "directory",
         "logical_bytes": 200000,
         "path": "<root>/app/node_modules/left-pad"
       },
       {
-        "allocated_bytes": "<allocated>",
+        "allocated_bytes": "<machine>",
         "kind": "directory",
         "logical_bytes": 10000,
         "path": "<root>/app/src"
       },
       {
-        "allocated_bytes": "<allocated>",
+        "allocated_bytes": "<machine>",
         "kind": "directory",
         "logical_bytes": 0,
         "path": "<root>/media"
@@ -41,10 +41,11 @@
     ],
     "root": "<root>",
     "totals": {
-      "allocated_bytes": "<allocated>",
+      "allocated_bytes": "<machine>",
       "clones": 0,
       "cloud_placeholders": 0,
       "directories": 6,
+      "exclusive_bytes": "<machine>",
       "files": 5,
       "hard_link_duplicates": 1,
       "logical_bytes": 2210010,

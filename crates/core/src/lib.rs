@@ -4,13 +4,16 @@
 //! that changes their serialized shape in a breaking way must bump
 //! [`SCHEMA_VERSION`] and regenerate `/schema`.
 
+pub mod age;
 pub mod candidate;
+pub mod plan;
 pub mod probe;
 pub mod report;
 pub mod safety;
 pub mod size;
 
 pub use candidate::*;
+pub use plan::*;
 pub use report::*;
 pub use safety::{ProtectedReason, protected_reason};
 

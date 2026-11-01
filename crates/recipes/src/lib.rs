@@ -5,8 +5,9 @@
 //! text for humans, and unknown keys are load errors, so a `command` field fails
 //! rather than being ignored.
 
+use std::ffi::OsStr;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use gigsift_core::{Action, Category, Protection, RebuildCost, Risk};
 use globset::{Glob, GlobSet, GlobSetBuilder};
@@ -17,9 +18,60 @@ pub const FORMAT_VERSION: u32 = 1;
 
 /// Compiled into the binary, so an installed gigsift needs no data files.
 const BUILTIN: &[(&str, &str)] = &[
+    ("bun-cache.toml", include_str!("../recipes/bun-cache.toml")),
+    (
+        "cargo-registry-cache.toml",
+        include_str!("../recipes/cargo-registry-cache.toml"),
+    ),
+    (
+        "docker-build-cache.toml",
+        include_str!("../recipes/docker-build-cache.toml"),
+    ),
+    (
+        "gradle-cache.toml",
+        include_str!("../recipes/gradle-cache.toml"),
+    ),
+    (
+        "gradle-project.toml",
+        include_str!("../recipes/gradle-project.toml"),
+    ),
+    (
+        "huggingface-cache.toml",
+        include_str!("../recipes/huggingface-cache.toml"),
+    ),
+    (
+        "ios-simulators.toml",
+        include_str!("../recipes/ios-simulators.toml"),
+    ),
+    ("js-dist.toml", include_str!("../recipes/js-dist.toml")),
+    (
+        "maven-repository.toml",
+        include_str!("../recipes/maven-repository.toml"),
+    ),
+    (
+        "next-build.toml",
+        include_str!("../recipes/next-build.toml"),
+    ),
     (
         "node-modules.toml",
         include_str!("../recipes/node-modules.toml"),
+    ),
+    ("npm-cache.toml", include_str!("../recipes/npm-cache.toml")),
+    (
+        "nuget-cache.toml",
+        include_str!("../recipes/nuget-cache.toml"),
+    ),
+    (
+        "nuxt-build.toml",
+        include_str!("../recipes/nuxt-build.toml"),
+    ),
+    (
+        "pnpm-store.toml",
+        include_str!("../recipes/pnpm-store.toml"),
+    ),
+    (
+        "python-bytecode.toml",
+        include_str!("../recipes/python-bytecode.toml"),
     ),
     (
         "python-venv.toml",
@@ -28,6 +80,18 @@ const BUILTIN: &[(&str, &str)] = &[
     (
         "rust-target.toml",
         include_str!("../recipes/rust-target.toml"),
+    ),
+    (
+        "turbo-cache.toml",
+        include_str!("../recipes/turbo-cache.toml"),
+    ),
+    (
+        "xcode-derived-data.toml",
+        include_str!("../recipes/xcode-derived-data.toml"),
+    ),
+    (
+        "yarn-cache.toml",
+        include_str!("../recipes/yarn-cache.toml"),
     ),
 ];
 
@@ -65,11 +129,12 @@ impl Platform {
     }
 }
 
-/// A directory matches when a glob matches its path and each non-empty marker
-/// list has at least one file present.
+/// A directory matches when it sits at one of `home_paths`, or when a glob in
+/// `paths` matches it and each non-empty marker list has at least one hit.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Detect {
+    #[serde(default)]
     pub paths: Vec<String>,
     /// Looked for beside the directory.
     #[serde(default)]
@@ -77,12 +142,30 @@ pub struct Detect {
     /// Looked for inside the directory.
     #[serde(default)]
     pub inner_markers: Vec<String>,
+    /// Any file directly inside the directory with one of these extensions.
+    #[serde(default)]
+    pub inner_extensions: Vec<String>,
+    /// Exact locations under the home folder, for tool caches.
+    #[serde(default)]
+    pub home_paths: Vec<HomePath>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HomePath {
+    pub path: String,
+    /// Absent means every platform.
+    pub platform: Option<Platform>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Protect {
+    #[serde(default)]
     pub when: Vec<Protection>,
+    /// Process names that must not be running, matched ignoring case.
+    #[serde(default)]
+    pub apps: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -199,34 +282,67 @@ impl RecipeSet {
         self.recipes.is_empty()
     }
 
-    /// The recipe that recognizes `path`, if any. Only stats marker files.
+    /// The recipe that recognizes `path`, if any. Reads no file contents.
     pub fn match_dir(&self, path: &Path, platform: Platform) -> Option<Match<'_>> {
         let compiled = self.recipes.iter().find(|c| {
             c.recipe.platforms.contains(&platform)
+                && !c.recipe.detect.paths.is_empty()
                 && c.paths.is_match(path)
                 && markers_present(&c.recipe.detect, path)
         })?;
-        let recipe = &compiled.recipe;
-        Some(Match {
-            recipe,
-            regenerate: regenerate_hint(recipe, path),
-        })
+        Some(hit(&compiled.recipe, path))
+    }
+
+    /// Tool caches that exist under `home`, all of which are recognized by location.
+    pub fn home_matches(&self, home: &Path, platform: Platform) -> Vec<(PathBuf, Match<'_>)> {
+        let mut found = Vec::new();
+        for Compiled { recipe, .. } in &self.recipes {
+            if !recipe.platforms.contains(&platform) {
+                continue;
+            }
+            for location in &recipe.detect.home_paths {
+                let path = home.join(&location.path);
+                let applies = location.platform.is_none_or(|p| p == platform);
+                if applies && is_real_dir(&path) {
+                    found.push((path.clone(), hit(recipe, &path)));
+                }
+            }
+        }
+        found
     }
 
     /// The outermost recognized directory at or above `path`, so a file deep in
     /// `node_modules` belongs to that `node_modules`, matching what [`Self::find`]
     /// would report. Symlinks are not directories here.
-    pub fn match_path(&self, path: &Path, platform: Platform) -> Option<(PathBuf, Match<'_>)> {
-        path.ancestors()
-            .filter(|dir| fs::symlink_metadata(dir).is_ok_and(|meta| meta.is_dir()))
-            .filter_map(|dir| Some((dir.to_owned(), self.match_dir(dir, platform)?)))
-            .last()
+    pub fn match_path(
+        &self,
+        path: &Path,
+        home: Option<&Path>,
+        platform: Platform,
+    ) -> Option<(PathBuf, Match<'_>)> {
+        let in_home = home.map(|home| self.home_matches(home, platform));
+        let cached = in_home
+            .into_iter()
+            .flatten()
+            .find(|(cache, _)| path.starts_with(cache));
+        cached.or_else(|| {
+            path.ancestors()
+                .filter(|dir| is_real_dir(dir))
+                .filter_map(|dir| Some((dir.to_owned(), self.match_dir(dir, platform)?)))
+                .last()
+        })
     }
 
     /// Walks `root` for matches without descending into one, so a package's own
     /// `node_modules` is part of its parent. Unreadable directories are skipped:
-    /// this walk finds candidates and never reports totals.
-    pub fn find(&self, root: &Path, platform: Platform) -> Vec<(PathBuf, Match<'_>)> {
+    /// this walk finds candidates and never reports totals. `skip` directories
+    /// and every `.git` are not entered.
+    pub fn find(
+        &self,
+        root: &Path,
+        platform: Platform,
+        skip: &[PathBuf],
+    ) -> Vec<(PathBuf, Match<'_>)> {
         let mut found = Vec::new();
         let mut pending = vec![root.to_owned()];
         while let Some(dir) = pending.pop() {
@@ -238,8 +354,12 @@ impl RecipeSet {
                     continue;
                 }
                 let path = entry.path();
+                if entry.file_name() == ".git" || skip.contains(&path) {
+                    continue;
+                }
                 match self.match_dir(&path, platform) {
                     Some(hit) => found.push((path, hit)),
+                    None if is_installed_packages(&entry.file_name()) => {}
                     None => pending.push(path),
                 }
             }
@@ -247,6 +367,26 @@ impl RecipeSet {
         found.sort_by(|a, b| a.0.cmp(&b.0));
         found
     }
+}
+
+/// Everything in these folders is an installed package, and a package's own
+/// manifest and `node_modules` are part of it. Node's global `lib/node_modules`
+/// holds `npm/package.json` beside `npm/node_modules`, which looks exactly like a
+/// project, and moving that would break npm itself.
+fn is_installed_packages(name: &OsStr) -> bool {
+    name == "node_modules" || name == "site-packages"
+}
+
+fn hit<'a>(recipe: &'a Recipe, path: &Path) -> Match<'a> {
+    Match {
+        recipe,
+        regenerate: regenerate_hint(recipe, path),
+    }
+}
+
+/// Symlinks don't count: a cache that points elsewhere isn't the cache.
+fn is_real_dir(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir())
 }
 
 fn validate(recipe: &Recipe) -> Result<(), String> {
@@ -268,11 +408,24 @@ fn validate(recipe: &Recipe) -> Result<(), String> {
         return Err("platforms must not be empty".to_owned());
     }
     let detect = &recipe.detect;
-    if detect.paths.is_empty() {
-        return Err("detect.paths must not be empty".to_owned());
+    if detect.paths.is_empty() && detect.home_paths.is_empty() {
+        return Err("detect needs paths or home_paths".to_owned());
     }
-    if detect.parent_markers.is_empty() && detect.inner_markers.is_empty() {
+    let has_markers = !detect.parent_markers.is_empty()
+        || !detect.inner_markers.is_empty()
+        || !detect.inner_extensions.is_empty();
+    if !detect.paths.is_empty() && !has_markers {
         return Err("a name alone proves nothing: add parent_markers or inner_markers".to_owned());
+    }
+    for home_path in &detect.home_paths {
+        let path = Path::new(&home_path.path);
+        let plain = path.components().all(|c| matches!(c, Component::Normal(_)));
+        if !plain {
+            return Err(format!(
+                "home path `{}` must stay inside the home folder",
+                home_path.path
+            ));
+        }
     }
     match recipe.regenerate.split_last() {
         Some((last, rest))
@@ -316,7 +469,23 @@ fn markers_present(detect: &Detect, path: &Path) -> bool {
     let any_in = |dir: &Path, markers: &[String]| {
         markers.is_empty() || markers.iter().any(|m| dir.join(m).is_file())
     };
-    any_in(parent, &detect.parent_markers) && any_in(path, &detect.inner_markers)
+    any_in(parent, &detect.parent_markers)
+        && any_in(path, &detect.inner_markers)
+        && has_extension_inside(path, &detect.inner_extensions)
+}
+
+fn has_extension_inside(dir: &Path, extensions: &[String]) -> bool {
+    if extensions.is_empty() {
+        return true;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        path.extension()
+            .is_some_and(|found| extensions.iter().any(|wanted| found == wanted.as_str()))
+    })
 }
 
 fn regenerate_hint<'a>(recipe: &'a Recipe, path: &Path) -> &'a str {

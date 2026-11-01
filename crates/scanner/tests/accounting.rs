@@ -82,6 +82,37 @@ fn hard_links_count_once_against_the_first_path() {
 }
 
 #[test]
+fn exclusive_bytes_ignore_files_still_linked_from_outside() {
+    let dir = tempdir().unwrap();
+    let outside = write(dir.path(), "store/shared.bin", KIB_64);
+    let own = write(dir.path(), "project/own.bin", KIB_64);
+    fs::hard_link(&outside, dir.path().join("project/linked.bin")).unwrap();
+
+    let project = scan_all(&dir.path().join("project"));
+
+    let own_allocated = fs_allocated(&own, &project);
+    assert_eq!(project.totals.exclusive_bytes, own_allocated);
+    assert!(project.totals.allocated_bytes > project.totals.exclusive_bytes);
+}
+
+#[test]
+fn exclusive_bytes_count_links_held_entirely_inside() {
+    let dir = tempdir().unwrap();
+    let file = write(dir.path(), "a/one.bin", KIB_64);
+    fs::create_dir(dir.path().join("b")).unwrap();
+    fs::hard_link(&file, dir.path().join("b/two.bin")).unwrap();
+
+    let result = scan_all(dir.path());
+
+    assert_eq!(result.totals.exclusive_bytes, result.totals.allocated_bytes);
+}
+
+/// A file's allocated size, read from the entries of a scan that kept it.
+fn fs_allocated(path: &Path, scan: &Scan) -> u64 {
+    entry(scan, path).allocated_bytes
+}
+
+#[test]
 fn keep_threshold_affects_entries_but_not_totals() {
     let dir = tempdir().unwrap();
     write(dir.path(), "small.bin", 10);
@@ -348,6 +379,22 @@ mod apfs {
         assert_eq!(result.totals.logical_bytes, 3 * 16 * KIB_64 as u64);
         assert_eq!(result.totals.allocated_bytes, single);
         assert!(!has_warning(&result, WarningCode::DivergedClones));
+    }
+
+    #[test]
+    fn exclusive_bytes_exclude_clones_held_outside() {
+        let Some((dir, _)) = cloned_tree() else {
+            return;
+        };
+        let project = dir.path().join("project");
+        fs::create_dir(&project).unwrap();
+        fs::rename(dir.path().join("b.bin"), project.join("b.bin")).unwrap();
+
+        let inside = scan_all(&project);
+        let whole = scan_all(dir.path());
+
+        assert_eq!(inside.totals.exclusive_bytes, 0);
+        assert_eq!(whole.totals.exclusive_bytes, whole.totals.allocated_bytes);
     }
 
     #[test]

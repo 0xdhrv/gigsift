@@ -1,0 +1,22 @@
+format_version = 1
+id = "turbo-cache"
+name = "Turborepo cache"
+platforms = ["macos", "windows"]
+category = "build_artifact"
+action = "move_to_trash"
+risk = "low"
+rebuild_cost = { time = "minutes", network = "none" }
+
+[detect]
+paths = ["**/.turbo"]
+parent_markers = ["package.json", "turbo.json"]
+
+[protect]
+when = ["inside_active_project", "contains_git_tracked_files", "contains_untracked_work"]
+
+[explain]
+reason = "Task cache and logs that Turborepo recreates"
+loses = "Cached task results and logs"
+
+[[regenerate]]
+hint = "turbo run build"

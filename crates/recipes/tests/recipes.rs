@@ -21,7 +21,7 @@ fn touch(root: &Path, relative: &str) -> PathBuf {
 
 fn found(root: &Path) -> Vec<(PathBuf, String, String)> {
     shipped()
-        .find(root, Platform::Macos)
+        .find(root, Platform::Macos, &[])
         .into_iter()
         .map(|(path, hit)| {
             let relative = path.strip_prefix(root).unwrap().to_owned();
@@ -37,12 +37,12 @@ fn hit(path: &str, id: &str, regenerate: &str) -> (PathBuf, String, String) {
 #[test]
 fn shipped_recipes_load_and_never_recommend_hard_delete() {
     let set = shipped();
-    assert_eq!(set.len(), 3);
+    assert!(set.len() >= 15, "{}", set.len());
     for platform in [Platform::Macos, Platform::Windows] {
         let dir = tempdir().unwrap();
         touch(dir.path(), "app/package.json");
         touch(dir.path(), "app/node_modules/x/index.js");
-        let hits = set.find(dir.path(), platform);
+        let hits = set.find(dir.path(), platform, &[]);
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].1.recipe.action, Action::MoveToTrash);
     }
@@ -64,7 +64,7 @@ fn match_path_finds_the_outermost_recognized_directory() {
     );
 
     let set = shipped();
-    let (matched, hit) = set.match_path(&inner, Platform::Macos).unwrap();
+    let (matched, hit) = set.match_path(&inner, None, Platform::Macos).unwrap();
 
     assert_eq!(matched, dir.path().join("app/node_modules"));
     assert_eq!(hit.recipe.id, "node-modules");
@@ -74,7 +74,7 @@ fn match_path_finds_the_outermost_recognized_directory() {
 fn match_path_ignores_unrecognized_paths() {
     let dir = tempdir().unwrap();
     let file = touch(dir.path(), "app/src/main.rs");
-    assert!(shipped().match_path(&file, Platform::Macos).is_none());
+    assert!(shipped().match_path(&file, None, Platform::Macos).is_none());
 }
 
 #[test]
@@ -173,6 +173,148 @@ fn a_source_folder_named_venv_is_left_alone() {
     touch(dir.path(), "tool/venv/helpers.py");
 
     assert!(found(dir.path()).is_empty());
+}
+
+#[test]
+fn nextjs_output_needs_a_package_json() {
+    let dir = tempdir().unwrap();
+    touch(dir.path(), "web/package.json");
+    touch(dir.path(), "web/.next/cache/x");
+    touch(dir.path(), "notes/.next/x");
+
+    assert_eq!(
+        found(dir.path()),
+        vec![hit("web/.next", "next-build", "next build")]
+    );
+}
+
+#[test]
+fn bytecode_folders_need_bytecode_inside() {
+    let dir = tempdir().unwrap();
+    touch(dir.path(), "tool/__pycache__/a.cpython-312.pyc");
+    touch(dir.path(), "other/__pycache__/notes.txt");
+
+    let hits = found(dir.path());
+
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].1, "python-bytecode");
+}
+
+#[test]
+fn dist_needs_a_manifest_beside_it() {
+    let dir = tempdir().unwrap();
+    touch(dir.path(), "web/package.json");
+    touch(dir.path(), "web/dist/app.js");
+    touch(dir.path(), "docs/dist/guide.md");
+
+    let hits = found(dir.path());
+
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].0, PathBuf::from("web/dist"));
+    assert_eq!(hits[0].1, "js-dist");
+}
+
+#[test]
+fn caches_are_found_by_location_under_home() {
+    let home = tempdir().unwrap();
+    touch(home.path(), ".cargo/registry/cache/index/serde.crate");
+    touch(home.path(), ".m2/repository/x.jar");
+    touch(home.path(), "Library/Developer/Xcode/DerivedData/App/x");
+    touch(home.path(), "AppData/Local/npm-cache/_cacache/x");
+
+    let set = shipped();
+    let ids = |platform| {
+        let mut ids: Vec<String> = set
+            .home_matches(home.path(), platform)
+            .into_iter()
+            .map(|(_, hit)| hit.recipe.id.clone())
+            .collect();
+        ids.sort();
+        ids
+    };
+
+    assert_eq!(
+        ids(Platform::Macos),
+        [
+            "cargo-registry-cache",
+            "maven-repository",
+            "xcode-derived-data"
+        ]
+    );
+    assert_eq!(
+        ids(Platform::Windows),
+        ["cargo-registry-cache", "maven-repository", "npm-cache"]
+    );
+}
+
+#[test]
+fn a_file_inside_a_cache_belongs_to_that_cache() {
+    let home = tempdir().unwrap();
+    let file = touch(home.path(), ".nuget/packages/x/1.0.0/x.nupkg");
+
+    let set = shipped();
+    let (matched, hit) = set
+        .match_path(&file, Some(home.path()), Platform::Windows)
+        .unwrap();
+
+    assert_eq!(matched, home.path().join(".nuget/packages"));
+    assert_eq!(hit.recipe.id, "nuget-cache");
+}
+
+#[test]
+fn dangerous_tools_are_never_trash_candidates() {
+    let set = shipped();
+    let home = tempdir().unwrap();
+    touch(
+        home.path(),
+        "Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw",
+    );
+    touch(home.path(), ".cache/huggingface/hub/models--x/blob");
+    for (_, hit) in set.home_matches(home.path(), Platform::Macos) {
+        assert_ne!(hit.recipe.action, Action::MoveToTrash, "{}", hit.recipe.id);
+    }
+}
+
+#[test]
+fn packages_inside_a_global_install_are_not_projects() {
+    let dir = tempdir().unwrap();
+    touch(dir.path(), "node/lib/node_modules/npm/package.json");
+    touch(
+        dir.path(),
+        "node/lib/node_modules/npm/node_modules/semver/index.js",
+    );
+    touch(dir.path(), "py/lib/site-packages/tool/package.json");
+    touch(
+        dir.path(),
+        "py/lib/site-packages/tool/node_modules/x/index.js",
+    );
+
+    assert!(found(dir.path()).is_empty());
+}
+
+#[test]
+fn walks_skip_git_and_requested_folders() {
+    let dir = tempdir().unwrap();
+    touch(dir.path(), "skipme/app/package.json");
+    touch(dir.path(), "skipme/app/node_modules/x/index.js");
+    touch(dir.path(), ".git/app/package.json");
+    touch(dir.path(), ".git/app/node_modules/x/index.js");
+
+    let set = shipped();
+    let hits = set.find(dir.path(), Platform::Macos, &[dir.path().join("skipme")]);
+
+    assert!(hits.is_empty());
+}
+
+#[test]
+fn home_paths_cannot_escape_home() {
+    assert_invalid(
+        &VALID.replace(
+            "paths = [\"**/example\"]",
+            "paths = []\nhome_paths = [{ path = \"../other\" }]",
+        ),
+        "inside the home folder",
+    );
 }
 
 #[cfg(unix)]

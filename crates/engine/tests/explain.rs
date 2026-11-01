@@ -2,9 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use gigsift_core::{
-    Action, CompletenessStatus, ExplainData, PathKind, ProtectedReason, Protection, SafetyVerdict,
+    Action, CompletenessStatus, Envelope, ExplainData, PathKind, ProtectedReason, SafetyVerdict,
 };
-use gigsift_engine::explain;
+use gigsift_engine::activity::RunningProcesses;
+use gigsift_engine::{Analyzer, explain};
 use gigsift_recipes::RecipeSet;
 use tempfile::{TempDir, tempdir};
 
@@ -25,8 +26,16 @@ fn write(root: &Path, relative: &str, bytes: usize) -> PathBuf {
     path
 }
 
+fn try_run(path: &Path) -> Result<Envelope<ExplainData>, gigsift_scanner::RootError> {
+    let recipes = RecipeSet::builtin();
+    explain(
+        path,
+        &Analyzer::new(&recipes, None, RunningProcesses::none(), 0),
+    )
+}
+
 fn run(path: &Path) -> ExplainData {
-    explain(path, &RecipeSet::builtin()).unwrap().data
+    try_run(path).unwrap().data
 }
 
 #[test]
@@ -45,11 +54,7 @@ fn a_recognized_directory_is_explained_but_not_called_safe() {
     assert_eq!(recognized.regenerate, "pnpm install");
     assert_eq!(recognized.recommended_action, Action::MoveToTrash);
     assert_eq!(data.safety.verdict, SafetyVerdict::ReviewRequired);
-    assert!(
-        data.safety
-            .checks_pending
-            .contains(&Protection::ContainsUntrackedWork)
-    );
+    assert!(data.safety.blocked_by.is_empty());
 }
 
 #[test]
@@ -82,7 +87,7 @@ fn an_unrecognized_file_is_unknown_not_disposable() {
     assert_eq!(data.logical_bytes, 100);
     assert!(data.recognized.is_none());
     assert_eq!(data.safety.verdict, SafetyVerdict::Unknown);
-    assert!(data.safety.checks_pending.is_empty());
+    assert!(data.safety.blocked_by.is_empty());
     assert_eq!(data.project.unwrap().marker, ".git");
 }
 
@@ -100,7 +105,7 @@ fn protection_beats_a_recipe_match() {
         data.safety.protected_because,
         Some(ProtectedReason::Credentials)
     );
-    assert!(data.safety.checks_pending.is_empty());
+    assert!(data.safety.blocked_by.is_empty());
 }
 
 #[test]
@@ -128,14 +133,14 @@ fn hard_linked_files_report_their_link_count() {
 #[test]
 fn a_missing_path_is_an_error() {
     let (_dir, root) = temp_root();
-    assert!(explain(&root.join("nope"), &RecipeSet::builtin()).is_err());
+    assert!(try_run(&root.join("nope")).is_err());
 }
 
 #[test]
 fn a_directory_scan_carries_its_completeness() {
     let (_dir, root) = temp_root();
     write(&root, "data/a.bin", 10);
-    let report = explain(&root.join("data"), &RecipeSet::builtin()).unwrap();
+    let report = try_run(&root.join("data")).unwrap();
     assert_eq!(
         report.scan_completeness.status,
         CompletenessStatus::Complete

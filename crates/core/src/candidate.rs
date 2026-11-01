@@ -112,4 +112,6 @@ pub enum Protection {
     ContainsGitTrackedFiles,
     /// Untracked and not ignored. Never assumed to be disposable.
     ContainsUntrackedWork,
+    /// For names like `dist`, which are only output if the project says so.
+    NotIgnoredByGit,
 }

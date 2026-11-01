@@ -168,6 +168,12 @@
           "minimum": 0,
           "type": "integer"
         },
+        "exclusive_bytes": {
+          "description": "What removing this whole tree would free. Excludes storage still reachable\nthrough a hard link or clone outside the tree.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "files": {
           "format": "uint64",
           "minimum": 0,
@@ -194,6 +200,7 @@
       "required": [
         "logical_bytes",
         "allocated_bytes",
+        "exclusive_bytes",
         "files",
         "directories",
         "symlinks",

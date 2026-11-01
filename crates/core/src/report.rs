@@ -2,7 +2,7 @@ use jiff::Timestamp;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{Action, Category, ProtectedReason, Protection, RebuildCost, Risk, SCHEMA_VERSION};
+use crate::{Action, BlockReason, Category, ProtectedReason, RebuildCost, Risk, SCHEMA_VERSION};
 
 /// Fields every top-level response carries, wrapped around command-specific data.
 ///
@@ -120,6 +120,9 @@ pub struct Totals {
     pub logical_bytes: u64,
     /// Bytes this tree occupies on disk.
     pub allocated_bytes: u64,
+    /// What removing this whole tree would free. Excludes storage still reachable
+    /// through a hard link or clone outside the tree.
+    pub exclusive_bytes: u64,
     pub files: u64,
     pub directories: u64,
     pub symlinks: u64,
@@ -180,6 +183,8 @@ pub struct ExplainData {
     pub symlink_target: Option<String>,
     pub logical_bytes: u64,
     pub allocated_bytes: u64,
+    /// What removing this path would free.
+    pub exclusive_bytes: u64,
     /// Above 1, removing this path frees nothing until the other names go too.
     pub hard_links: u32,
     /// Some of this storage is shared with an APFS clone, so removal frees less.
@@ -233,8 +238,8 @@ pub struct Safety {
     /// Set exactly when the verdict is `protected`.
     pub protected_because: Option<ProtectedReason>,
     pub summary: String,
-    /// Conditions that must be verified before this could become a candidate.
-    pub checks_pending: Vec<Protection>,
+    /// Why this can't be a candidate right now. Set when the verdict is `blocked`.
+    pub blocked_by: Vec<BlockReason>,
 }
 
 /// There is deliberately no `safe` verdict: only a plan, revalidated at apply
@@ -244,7 +249,9 @@ pub struct Safety {
 pub enum SafetyVerdict {
     /// Never a cleanup candidate.
     Protected,
-    /// A recipe knows this path, but its checks have not run.
+    /// A recipe knows this path, but a check failed, so it is off limits for now.
+    Blocked,
+    /// A recipe knows this path and its checks pass today. Still needs a plan.
     ReviewRequired,
     /// gigsift does not know what this is. Do not assume it is disposable.
     Unknown,
@@ -270,4 +277,7 @@ pub struct ErrorBody {
 #[serde(rename_all = "snake_case")]
 pub enum ErrorCode {
     RootNotReadable,
+    InvalidPlanId,
+    PlanNotFound,
+    StorageFailed,
 }

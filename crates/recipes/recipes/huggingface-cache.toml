@@ -1,0 +1,21 @@
+format_version = 1
+id = "huggingface-cache"
+name = "Hugging Face model cache"
+platforms = ["macos", "windows"]
+category = "model_cache"
+action = "report_only"
+risk = "medium"
+rebuild_cost = { time = "hours", network = "high" }
+
+[detect]
+home_paths = [{ path = ".cache/huggingface/hub" }]
+
+[protect]
+when = []
+
+[explain]
+reason = "Downloaded models, which can be very slow to fetch again and may have been removed upstream"
+loses = "Model weights, which may not be available to download again"
+
+[[regenerate]]
+hint = "Review the models with huggingface-cli scan-cache"

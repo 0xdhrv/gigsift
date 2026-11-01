@@ -1,0 +1,40 @@
+{
+  "command": "projects",
+  "data": {
+    "hidden_as_recent": 0,
+    "projects": [
+      {
+        "active": false,
+        "active_because": [],
+        "artifacts": [
+          {
+            "allocated_bytes": "<machine>",
+            "blocked_by": [],
+            "category": "developer_dependency",
+            "path": "<root>/app/node_modules",
+            "recipe_id": "node-modules",
+            "reclaimable_bytes_estimate": "<machine>"
+          }
+        ],
+        "git_status": "not_a_repository",
+        "last_activity": "<timestamp>",
+        "marker": "package.json",
+        "reclaimable_bytes_estimate": "<machine>",
+        "root": "<root>/app"
+      }
+    ],
+    "root": "<root>",
+    "stale_after_seconds": null
+  },
+  "inaccessible_paths": [],
+  "scan_completeness": {
+    "directories_unreadable": 0,
+    "directories_visited": 2,
+    "entries_unreadable": 0,
+    "mount_points_skipped": 0,
+    "status": "complete"
+  },
+  "scanned_at": "<timestamp>",
+  "schema_version": 1,
+  "warnings": []
+}

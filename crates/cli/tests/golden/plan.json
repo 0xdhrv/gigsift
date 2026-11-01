@@ -1,0 +1,62 @@
+{
+  "command": "clean plan",
+  "data": {
+    "advisories": [],
+    "blocked": [],
+    "items": [
+      {
+        "candidate": {
+          "allocated_bytes": "<machine>",
+          "candidate_id": "<candidate_id>",
+          "category": "developer_dependency",
+          "confidence": 0.85,
+          "git_status": "not_a_repository",
+          "logical_bytes": 200000,
+          "loses": "Installed packages, plus any local edits made inside them",
+          "path": "<root>/app/node_modules",
+          "project": {
+            "active": false,
+            "last_activity": "<timestamp>",
+            "root": "<root>/app"
+          },
+          "reason": "Reinstallable dependencies declared by package.json",
+          "rebuild_cost": {
+            "network": "high",
+            "time": "minutes"
+          },
+          "reclaimable_bytes_estimate": "<machine>",
+          "recommended_action": "move_to_trash",
+          "regenerate": "npm install",
+          "requires_confirmation": true,
+          "risk": "low",
+          "schema_version": 1
+        },
+        "identity": {
+          "allocated_bytes": "<machine>",
+          "file": "<machine>",
+          "modified_at": "<timestamp>",
+          "volume": "<machine>"
+        }
+      }
+    ],
+    "not_needed": [],
+    "plan_id": "<plan_id>",
+    "profile": "developer",
+    "reclaimable_bytes_estimate": "<machine>",
+    "root": "<root>",
+    "shortfall_bytes": 0,
+    "target_bytes": 1000,
+    "target_met": true
+  },
+  "inaccessible_paths": [],
+  "scan_completeness": {
+    "directories_unreadable": 0,
+    "directories_visited": 2,
+    "entries_unreadable": 0,
+    "mount_points_skipped": 0,
+    "status": "complete"
+  },
+  "scanned_at": "<timestamp>",
+  "schema_version": 1,
+  "warnings": []
+}

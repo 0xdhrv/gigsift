@@ -1,0 +1,25 @@
+format_version = 1
+id = "yarn-cache"
+name = "Yarn cache"
+platforms = ["macos", "windows"]
+category = "package_cache"
+action = "move_to_trash"
+risk = "low"
+rebuild_cost = { time = "minutes", network = "high" }
+
+[detect]
+home_paths = [
+  { path = "Library/Caches/Yarn", platform = "macos" },
+  { path = "AppData/Local/Yarn/Cache", platform = "windows" },
+]
+
+[protect]
+when = []
+apps = ["yarn"]
+
+[explain]
+reason = "Downloaded packages that Yarn fetches again on demand"
+loses = "Offline copies of packages"
+
+[[regenerate]]
+hint = "yarn install"

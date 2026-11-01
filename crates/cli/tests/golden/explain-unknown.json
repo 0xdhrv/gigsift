@@ -1,8 +1,9 @@
 {
   "command": "explain",
   "data": {
-    "allocated_bytes": "<allocated>",
+    "allocated_bytes": "<machine>",
     "cloud_placeholder": false,
+    "exclusive_bytes": "<machine>",
     "hard_links": 1,
     "kind": "file",
     "logical_bytes": 10000,
@@ -13,7 +14,7 @@
     },
     "recognized": null,
     "safety": {
-      "checks_pending": [],
+      "blocked_by": [],
       "protected_because": null,
       "summary": "gigsift does not recognize this. That does not mean it is disposable.",
       "verdict": "unknown"

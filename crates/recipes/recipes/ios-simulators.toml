@@ -1,0 +1,22 @@
+format_version = 1
+id = "ios-simulators"
+name = "iOS simulators"
+platforms = ["macos", "windows"]
+category = "tool_cache"
+action = "guided_tool"
+risk = "medium"
+rebuild_cost = { time = "hours", network = "high" }
+
+[detect]
+home_paths = [{ path = "Library/Developer/CoreSimulator/Devices", platform = "macos" }]
+
+[protect]
+when = []
+apps = ["Simulator"]
+
+[explain]
+reason = "Simulator devices, which hold app data you may want"
+loses = "Installed apps and their data in each simulator"
+
+[[regenerate]]
+hint = "Remove unavailable devices with xcrun simctl delete unavailable"

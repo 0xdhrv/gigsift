@@ -1,0 +1,23 @@
+format_version = 1
+id = "js-dist"
+name = "JavaScript build output"
+platforms = ["macos", "windows"]
+category = "build_artifact"
+action = "move_to_trash"
+risk = "medium"
+rebuild_cost = { time = "minutes", network = "none" }
+
+[detect]
+paths = ["**/dist", "**/build"]
+# These names are common for real source, so git must also ignore them.
+parent_markers = ["package.json"]
+
+[protect]
+when = ["inside_active_project", "contains_git_tracked_files", "contains_untracked_work", "not_ignored_by_git"]
+
+[explain]
+reason = "Output of the project build, which git ignores"
+loses = "Built files, which may be missing a step if the build needs manual work"
+
+[[regenerate]]
+hint = "The project's build script"

@@ -1,0 +1,25 @@
+format_version = 1
+id = "docker-build-cache"
+name = "Docker data"
+platforms = ["macos", "windows"]
+category = "tool_cache"
+action = "guided_tool"
+risk = "high"
+rebuild_cost = { time = "hours", network = "high" }
+
+[detect]
+home_paths = [
+  { path = "Library/Containers/com.docker.docker/Data/vms", platform = "macos" },
+  { path = "AppData/Local/Docker/wsl", platform = "windows" },
+]
+
+[protect]
+when = []
+apps = ["Docker", "com.docker.backend"]
+
+[explain]
+reason = "Docker's virtual disk, which holds images, volumes, and containers. Never remove the disk itself"
+loses = "Everything in Docker, including volumes, if the disk is removed"
+
+[[regenerate]]
+hint = "Inside Docker, review docker system df, then run docker builder prune"

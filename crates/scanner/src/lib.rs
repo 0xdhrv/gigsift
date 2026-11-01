@@ -13,7 +13,7 @@ use std::sync::Mutex;
 
 use gigsift_core::probe::{CloneInfo, FileId, FileProbe};
 use gigsift_core::{
-    CompletenessStatus, EntryKind, InaccessiblePath, InaccessibleReason, PathKind,
+    CompletenessStatus, EntryKind, FileIdentity, InaccessiblePath, InaccessibleReason, PathKind,
     ScanCompleteness, ScanMeta, Totals, Warning, WarningCode,
 };
 use jiff::Timestamp;
@@ -114,6 +114,7 @@ pub struct Inspection {
     pub symlink_target: Option<PathBuf>,
     pub logical_bytes: u64,
     pub allocated_bytes: u64,
+    pub exclusive_bytes: u64,
     pub hard_links: u32,
     pub shares_blocks: bool,
     pub cloud_placeholder: bool,
@@ -145,6 +146,7 @@ pub fn inspect(path: &Path) -> Result<Inspection, RootError> {
         return Ok(Inspection {
             logical_bytes: result.totals.logical_bytes,
             allocated_bytes: result.totals.allocated_bytes,
+            exclusive_bytes: result.totals.exclusive_bytes,
             shares_blocks: result.totals.clones > 0,
             meta: result.meta,
             ..single_entry(PathKind::Directory)
@@ -159,13 +161,34 @@ pub fn inspect(path: &Path) -> Result<Inspection, RootError> {
     } else {
         PathKind::Other
     };
+    let exclusive_bytes = match probe.clone {
+        _ if probe.links > 1 => 0,
+        Some(clone) => clone.private_bytes,
+        None => probe.allocated_bytes,
+    };
     Ok(Inspection {
         logical_bytes: meta.len(),
         allocated_bytes: probe.allocated_bytes,
+        exclusive_bytes,
         hard_links: probe.links,
         shares_blocks,
         cloud_placeholder: probe.placeholder,
         ..single_entry(path_kind)
+    })
+}
+
+/// The fingerprint a plan records, so apply can tell if `path` was replaced.
+pub fn file_identity(path: &Path, allocated_bytes: u64) -> Option<FileIdentity> {
+    let meta = fs::symlink_metadata(path).ok()?;
+    let id = platform::probe_file(path, &meta).id?;
+    Some(FileIdentity {
+        volume: id.volume,
+        file: id.file,
+        modified_at: meta
+            .modified()
+            .ok()
+            .and_then(|t| Timestamp::try_from(t).ok()),
+        allocated_bytes,
     })
 }
 
@@ -175,6 +198,7 @@ fn single_entry(kind: PathKind) -> Inspection {
         symlink_target: None,
         logical_bytes: 0,
         allocated_bytes: 0,
+        exclusive_bytes: 0,
         hard_links: 1,
         shares_blocks: false,
         cloud_placeholder: false,
@@ -230,6 +254,8 @@ struct WalkState {
     files: u64,
     symlinks: u64,
     placeholders: u64,
+    /// Allocated bytes of files that share nothing, so they are always exclusive.
+    unshared_bytes: u64,
 }
 
 struct DirNode {
@@ -374,6 +400,7 @@ impl WalkState {
         let node = &mut self.dirs[id as usize];
         node.logical_bytes += batch.logical_bytes;
         node.allocated_bytes += batch.allocated_bytes;
+        self.unshared_bytes += batch.allocated_bytes;
         self.files += batch.files;
         self.symlinks += batch.symlinks;
         self.placeholders += batch.placeholders;
@@ -430,6 +457,61 @@ impl CloneCharges {
     }
 }
 
+/// Works out what would be freed by removing the whole tree. Shared storage only
+/// counts once every path that reaches it has been seen inside the tree.
+#[derive(Default)]
+struct ExclusiveBytes {
+    bytes: u64,
+    /// By file: links seen, links in total, and the bytes that file would free.
+    hard_links: HashMap<FileId, (u32, u32, u64)>,
+    /// By clone id: members seen, live references, and largest shared size.
+    clones: HashMap<u64, (u32, u32, u64)>,
+}
+
+impl ExclusiveBytes {
+    fn add(&mut self, probe: &FileProbe) {
+        let own = probe
+            .clone
+            .map_or(probe.allocated_bytes, |c| c.private_bytes);
+        match probe.id.filter(|_| probe.links > 1) {
+            Some(id) => {
+                let entry = self.hard_links.entry(id).or_insert((0, probe.links, own));
+                entry.0 += 1;
+                if entry.0 > 1 {
+                    return;
+                }
+            }
+            None => self.bytes += own,
+        }
+        if let Some(clone) = probe.clone {
+            let shared = probe.allocated_bytes.saturating_sub(clone.private_bytes);
+            let entry = self
+                .clones
+                .entry(clone.id)
+                .or_insert((0, clone.references, 0));
+            entry.0 += 1;
+            entry.2 = entry.2.max(shared);
+        }
+    }
+
+    fn total(&self) -> u64 {
+        let links: u64 = self
+            .hard_links
+            .values()
+            .filter(|(seen, total, _)| seen >= total)
+            .map(|(_, _, bytes)| bytes)
+            .sum();
+        // One reference means a modified clone whose partners can't be identified.
+        let clones: u64 = self
+            .clones
+            .values()
+            .filter(|(seen, references, _)| *references > 1 && seen >= references)
+            .map(|(_, _, shared)| shared)
+            .sum();
+        self.bytes + links + clones
+    }
+}
+
 fn finish(root: PathBuf, mut state: WalkState, keep_from: u64) -> Scan {
     let mut totals = Totals {
         files: state.files,
@@ -443,7 +525,9 @@ fn finish(root: PathBuf, mut state: WalkState, keep_from: u64) -> Scan {
     shared.sort_by(|a, b| a.path.cmp(&b.path));
     let mut seen: HashSet<FileId> = HashSet::new();
     let mut clones = CloneCharges::default();
+    let mut exclusive = ExclusiveBytes::default();
     for file in shared {
+        exclusive.add(&file.probe);
         if file.probe.links > 1 && file.probe.id.is_some_and(|id| !seen.insert(id)) {
             totals.hard_link_duplicates += 1;
             continue;
@@ -467,6 +551,7 @@ fn finish(root: PathBuf, mut state: WalkState, keep_from: u64) -> Scan {
         }
     }
     totals.clones = clones.count;
+    totals.exclusive_bytes = state.unshared_bytes + exclusive.total();
 
     for index in (1..state.dirs.len()).rev() {
         let (logical, allocated, parent) = {

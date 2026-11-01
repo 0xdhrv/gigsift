@@ -1,0 +1,22 @@
+format_version = 1
+id = "python-bytecode"
+name = "Python bytecode"
+platforms = ["macos", "windows"]
+category = "build_artifact"
+action = "move_to_trash"
+risk = "low"
+rebuild_cost = { time = "seconds", network = "none" }
+
+[detect]
+paths = ["**/__pycache__"]
+inner_extensions = ["pyc"]
+
+[protect]
+when = ["inside_active_project", "contains_git_tracked_files", "contains_untracked_work"]
+
+[explain]
+reason = "Bytecode that Python recreates when modules load"
+loses = "Compiled bytecode"
+
+[[regenerate]]
+hint = "Run the program again"

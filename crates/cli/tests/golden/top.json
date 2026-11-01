@@ -3,19 +3,19 @@
   "data": {
     "entries": [
       {
-        "allocated_bytes": "<allocated>",
+        "allocated_bytes": "<machine>",
         "kind": "directory",
         "logical_bytes": 2210010,
         "path": "<root>"
       },
       {
-        "allocated_bytes": "<allocated>",
+        "allocated_bytes": "<machine>",
         "kind": "directory",
         "logical_bytes": 2210010,
         "path": "<root>/app"
       },
       {
-        "allocated_bytes": "<allocated>",
+        "allocated_bytes": "<machine>",
         "kind": "file",
         "logical_bytes": 2000000,
         "path": "<root>/app/clip-link.mov"

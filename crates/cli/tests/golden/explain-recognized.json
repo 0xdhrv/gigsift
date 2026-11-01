@@ -1,8 +1,9 @@
 {
   "command": "explain",
   "data": {
-    "allocated_bytes": "<allocated>",
+    "allocated_bytes": "<machine>",
     "cloud_placeholder": false,
+    "exclusive_bytes": "<machine>",
     "hard_links": 1,
     "kind": "directory",
     "logical_bytes": 200000,
@@ -27,13 +28,9 @@
       "risk": "low"
     },
     "safety": {
-      "checks_pending": [
-        "inside_active_project",
-        "contains_git_tracked_files",
-        "contains_untracked_work"
-      ],
+      "blocked_by": [],
       "protected_because": null,
-      "summary": "Recognized, but its safety checks have not run. Do not treat it as safe to remove.",
+      "summary": "Recognized, and its checks pass right now. Review it in a plan before acting.",
       "verdict": "review_required"
     },
     "shares_blocks": false,

@@ -1,8 +1,9 @@
 {
   "command": "explain",
   "data": {
-    "allocated_bytes": "<allocated>",
+    "allocated_bytes": "<machine>",
     "cloud_placeholder": false,
+    "exclusive_bytes": "<machine>",
     "hard_links": 1,
     "kind": "file",
     "logical_bytes": 8,
@@ -13,7 +14,7 @@
     },
     "recognized": null,
     "safety": {
-      "checks_pending": [],
+      "blocked_by": [],
       "protected_because": "credentials",
       "summary": "May hold keys or secrets. gigsift will never remove it.",
       "verdict": "protected"

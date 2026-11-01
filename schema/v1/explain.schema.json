@@ -9,6 +9,68 @@
       ],
       "type": "string"
     },
+    "BlockReason": {
+      "description": "Why something is not a candidate right now.",
+      "oneOf": [
+        {
+          "enum": [
+            "uncommitted_changes",
+            "unpushed_commits"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "recent_activity",
+          "description": "Project files changed inside the activity window.",
+          "type": "string"
+        },
+        {
+          "const": "running_process",
+          "description": "A running process is working inside the project.",
+          "type": "string"
+        },
+        {
+          "const": "git_tracked_files",
+          "description": "Git tracks files here, so it is source.",
+          "type": "string"
+        },
+        {
+          "const": "untracked_work",
+          "description": "Holds files git neither tracks nor ignores.",
+          "type": "string"
+        },
+        {
+          "const": "not_ignored_by_git",
+          "description": "The recipe needs git to ignore this before calling it output.",
+          "type": "string"
+        },
+        {
+          "const": "git_unavailable",
+          "description": "Git could not answer, and a missing answer is not a clean one.",
+          "type": "string"
+        },
+        {
+          "const": "app_running",
+          "description": "An application that owns this data is running.",
+          "type": "string"
+        },
+        {
+          "const": "protected_path",
+          "description": "The safety policy never allows this path.",
+          "type": "string"
+        },
+        {
+          "const": "non_unicode_path",
+          "description": "The path can't be carried exactly in JSON, so a plan could not name it.",
+          "type": "string"
+        },
+        {
+          "const": "identity_unavailable",
+          "description": "The OS would not identify this path, so apply could not revalidate it.",
+          "type": "string"
+        }
+      ]
+    },
     "Category": {
       "enum": [
         "developer_dependency",
@@ -45,6 +107,12 @@
         },
         "cloud_placeholder": {
           "type": "boolean"
+        },
+        "exclusive_bytes": {
+          "description": "What removing this path would free.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         },
         "hard_links": {
           "description": "Above 1, removing this path frees nothing until the other names go too.",
@@ -106,6 +174,7 @@
         "kind",
         "logical_bytes",
         "allocated_bytes",
+        "exclusive_bytes",
         "hard_links",
         "shares_blocks",
         "cloud_placeholder",
@@ -206,27 +275,6 @@
         }
       ]
     },
-    "Protection": {
-      "description": "Conditions that veto a candidate. Recipes declare them; the planner checks them.",
-      "oneOf": [
-        {
-          "enum": [
-            "inside_active_project"
-          ],
-          "type": "string"
-        },
-        {
-          "const": "contains_git_tracked_files",
-          "description": "Git tracks something in here, so it is source, whatever its name says.",
-          "type": "string"
-        },
-        {
-          "const": "contains_untracked_work",
-          "description": "Untracked and not ignored. Never assumed to be disposable.",
-          "type": "string"
-        }
-      ]
-    },
     "RebuildCost": {
       "additionalProperties": false,
       "properties": {
@@ -312,10 +360,10 @@
     "Safety": {
       "additionalProperties": false,
       "properties": {
-        "checks_pending": {
-          "description": "Conditions that must be verified before this could become a candidate.",
+        "blocked_by": {
+          "description": "Why this can't be a candidate right now. Set when the verdict is `blocked`.",
           "items": {
-            "$ref": "#/$defs/Protection"
+            "$ref": "#/$defs/BlockReason"
           },
           "type": "array"
         },
@@ -340,7 +388,7 @@
       "required": [
         "verdict",
         "summary",
-        "checks_pending"
+        "blocked_by"
       ],
       "type": "object"
     },
@@ -353,8 +401,13 @@
           "type": "string"
         },
         {
+          "const": "blocked",
+          "description": "A recipe knows this path, but a check failed, so it is off limits for now.",
+          "type": "string"
+        },
+        {
           "const": "review_required",
-          "description": "A recipe knows this path, but its checks have not run.",
+          "description": "A recipe knows this path and its checks pass today. Still needs a plan.",
           "type": "string"
         },
         {

@@ -1,0 +1,22 @@
+format_version = 1
+id = "xcode-derived-data"
+name = "Xcode derived data"
+platforms = ["macos", "windows"]
+category = "build_artifact"
+action = "move_to_trash"
+risk = "low"
+rebuild_cost = { time = "minutes", network = "none" }
+
+[detect]
+home_paths = [{ path = "Library/Developer/Xcode/DerivedData", platform = "macos" }]
+
+[protect]
+when = []
+apps = ["Xcode"]
+
+[explain]
+reason = "Build products and indexes that Xcode recreates"
+loses = "Build products and the code index"
+
+[[regenerate]]
+hint = "Build the project in Xcode"

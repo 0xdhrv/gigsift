@@ -10,6 +10,10 @@ repository.workspace = true
 gigsift-core.workspace = true
 gigsift-recipes.workspace = true
 gigsift-scanner.workspace = true
+jiff.workspace = true
+rayon.workspace = true
+sysinfo.workspace = true
+ulid.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

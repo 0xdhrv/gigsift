@@ -1,0 +1,22 @@
+format_version = 1
+id = "next-build"
+name = "Next.js build output"
+platforms = ["macos", "windows"]
+category = "build_artifact"
+action = "move_to_trash"
+risk = "low"
+rebuild_cost = { time = "minutes", network = "none" }
+
+[detect]
+paths = ["**/.next"]
+parent_markers = ["package.json"]
+
+[protect]
+when = ["inside_active_project", "contains_git_tracked_files", "contains_untracked_work"]
+
+[explain]
+reason = "Build output and cache that Next.js writes on every build"
+loses = "Compiled pages and the local build cache"
+
+[[regenerate]]
+hint = "next build"

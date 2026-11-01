@@ -17,6 +17,7 @@ gigsift-core.workspace = true
 gigsift-engine.workspace = true
 gigsift-recipes.workspace = true
 gigsift-scanner.workspace = true
+gigsift-store.workspace = true
 jiff.workspace = true
 serde.workspace = true
 serde_json.workspace = true

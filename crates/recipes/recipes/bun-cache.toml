@@ -1,0 +1,22 @@
+format_version = 1
+id = "bun-cache"
+name = "Bun cache"
+platforms = ["macos", "windows"]
+category = "package_cache"
+action = "move_to_trash"
+risk = "low"
+rebuild_cost = { time = "minutes", network = "high" }
+
+[detect]
+home_paths = [{ path = ".bun/install/cache" }]
+
+[protect]
+when = []
+apps = ["bun"]
+
+[explain]
+reason = "Downloaded packages that Bun fetches again on demand"
+loses = "Offline copies of packages"
+
+[[regenerate]]
+hint = "bun install"

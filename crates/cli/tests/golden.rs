@@ -54,8 +54,16 @@ fn normalize(value: &mut Value, root: &str) {
         Value::Object(map) => {
             for (key, item) in map.iter_mut() {
                 match key.as_str() {
-                    "scanned_at" => *item = json!("<timestamp>"),
-                    "allocated_bytes" => *item = json!("<allocated>"),
+                    "scanned_at" | "last_activity" | "modified_at" => {
+                        *item = json!("<timestamp>");
+                    }
+                    "allocated_bytes"
+                    | "exclusive_bytes"
+                    | "reclaimable_bytes_estimate"
+                    | "volume"
+                    | "file" => *item = json!("<machine>"),
+                    "plan_id" => *item = json!("<plan_id>"),
+                    "candidate_id" => *item = json!("<candidate_id>"),
                     _ => normalize(item, root),
                 }
             }
@@ -71,8 +79,9 @@ fn normalize(value: &mut Value, root: &str) {
 fn check_golden(name: &str, output: &Output, root: &Path) {
     assert!(output.status.success(), "{output:?}");
     let mut value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let schema = name.split('-').next().unwrap();
     assert!(
-        validator(name.split('-').next().unwrap()).is_valid(&value),
+        validator(schema).is_valid(&value),
         "{name} output violates its published schema"
     );
 
@@ -113,7 +122,13 @@ fn explain_golden(name: &str, relative: &str) {
     let dir = fixture();
     let root = resolved_root(&dir);
     let target = root.join(relative);
-    let output = gigsift(&["explain", target.to_str().unwrap(), "--json"]);
+    let output = gigsift(&[
+        "explain",
+        target.to_str().unwrap(),
+        "--active-within",
+        "0d",
+        "--json",
+    ]);
     check_golden(name, &output, &root);
 }
 
@@ -138,13 +153,95 @@ fn explain_text_never_calls_anything_safe_to_remove() {
     let root = resolved_root(&dir);
     let target = root.join("app/node_modules");
 
-    let output = gigsift(&["explain", target.to_str().unwrap()]);
+    let output = gigsift(&["explain", target.to_str().unwrap(), "--active-within", "0d"]);
 
     assert!(output.status.success(), "{output:?}");
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains("Review required"), "{text}");
-    assert!(text.contains("Not checked yet"), "{text}");
     assert!(text.contains("npm install"), "{text}");
+}
+
+#[test]
+fn explain_blocks_a_project_that_just_changed() {
+    let dir = fixture();
+    let root = resolved_root(&dir);
+    let target = root.join("app/node_modules");
+
+    let output = gigsift(&["explain", target.to_str().unwrap()]);
+
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("Blocked"), "{text}");
+    assert!(text.contains("project changed recently"), "{text}");
+}
+
+fn gigsift_with_data(data_dir: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_gigsift"))
+        .args(args)
+        .env("GIGSIFT_DATA_DIR", data_dir)
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn projects_json_matches_golden() {
+    let dir = fixture();
+    let root = resolved_root(&dir);
+    let output = gigsift(&[
+        "projects",
+        root.to_str().unwrap(),
+        "--active-within",
+        "0d",
+        "--json",
+    ]);
+    check_golden("projects", &output, &root);
+}
+
+#[test]
+fn clean_plan_json_matches_golden_and_show_returns_the_same_plan() {
+    let dir = fixture();
+    let root = resolved_root(&dir);
+    let data = tempdir().unwrap();
+
+    let output = gigsift_with_data(
+        data.path(),
+        &[
+            "clean",
+            "plan",
+            root.to_str().unwrap(),
+            "--target",
+            "1kb",
+            "--active-within",
+            "0d",
+            "--json",
+        ],
+    );
+    check_golden("plan", &output, &root);
+
+    let plan: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let id = plan["data"]["plan_id"].as_str().unwrap();
+    let shown = gigsift_with_data(data.path(), &["clean", "show", id, "--json"]);
+    assert!(shown.status.success(), "{shown:?}");
+    let shown: Value = serde_json::from_slice(&shown.stdout).unwrap();
+    assert_eq!(shown, plan);
+}
+
+#[test]
+fn clean_show_reports_a_missing_plan_in_the_error_contract() {
+    let data = tempdir().unwrap();
+    let id = "plan_01JABCDEFGHJKMNPQRSTVWXYZ0";
+
+    let output = gigsift_with_data(data.path(), &["clean", "show", id, "--json"]);
+
+    assert!(!output.status.success());
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(validator("error").is_valid(&value));
+    assert_eq!(value["error"]["code"], "plan_not_found");
+}
+
+#[test]
+fn the_cli_offers_no_way_to_apply_a_plan_yet() {
+    let output = gigsift(&["clean", "apply", "plan_01JABCDEFGHJKMNPQRSTVWXYZ0"]);
+    assert!(!output.status.success());
 }
 
 #[test]

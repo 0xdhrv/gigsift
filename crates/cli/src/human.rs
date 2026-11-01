@@ -2,8 +2,9 @@
 
 use gigsift_core::size::format_size;
 use gigsift_core::{
-    CompletenessStatus, EntryKind, Envelope, ExplainData, NetworkCost, PathKind, Protection,
-    RebuildTime, Risk, SafetyVerdict, ScanData, SizedEntry, TopData,
+    BlockReason, Candidate, CompletenessStatus, EntryKind, Envelope, ExplainData, GitStatus,
+    NetworkCost, PathKind, PlanData, ProjectsData, RebuildTime, Risk, SafetyVerdict, ScanData,
+    SizedEntry, TopData,
 };
 
 pub fn print_scan(report: &Envelope<ScanData>) {
@@ -89,10 +90,153 @@ pub fn print_explain(report: &Envelope<ExplainData>) {
     }
     println!();
     println!("{}: {}", verdict(data.safety.verdict), data.safety.summary);
-    for check in &data.safety.checks_pending {
-        println!("  Not checked yet: {}", pending_check(*check));
+    for reason in &data.safety.blocked_by {
+        println!("  Blocked: {}", block_reason(*reason));
     }
     print_trust(report);
+}
+
+pub fn print_projects(report: &Envelope<ProjectsData>) {
+    let data = &report.data;
+    if data.projects.is_empty() {
+        println!("No projects with reclaimable artifacts in {}.", data.root);
+    }
+    for project in &data.projects {
+        println!(
+            "{:>9}  {}",
+            format_size(project.reclaimable_bytes_estimate),
+            project.root
+        );
+        let activity = project.last_activity.map_or_else(
+            || "unknown".to_owned(),
+            |time| time.strftime("%Y-%m-%d").to_string(),
+        );
+        println!(
+            "           Last activity {activity}, {}",
+            git_status(project.git_status)
+        );
+        for reason in &project.active_because {
+            println!("           Active: {}", block_reason(*reason));
+        }
+        for artifact in &project.artifacts {
+            let state = if artifact.blocked_by.is_empty() {
+                ""
+            } else {
+                "  (blocked)"
+            };
+            println!(
+                "           {:>9}  {}{state}",
+                format_size(artifact.allocated_bytes),
+                artifact.path
+            );
+        }
+    }
+    if data.hidden_as_recent > 0 {
+        println!(
+            "{} more projects were active too recently to list.",
+            data.hidden_as_recent
+        );
+    }
+    print_trust(report);
+}
+
+pub fn print_plan(report: &Envelope<PlanData>) {
+    let data = &report.data;
+    println!("Plan {}", data.plan_id);
+    println!(
+        "Target {}, found {} under {}",
+        format_size(data.target_bytes),
+        format_size(data.reclaimable_bytes_estimate),
+        data.root
+    );
+    if !data.target_met {
+        println!(
+            "Short of the target by {}.",
+            format_size(data.shortfall_bytes)
+        );
+    }
+    if !data.items.is_empty() {
+        println!();
+        println!("Would move to Trash");
+        for item in &data.items {
+            print_candidate(&item.candidate);
+        }
+    }
+    if !data.advisories.is_empty() {
+        println!();
+        println!("Needs your judgment, not included");
+        for candidate in &data.advisories {
+            print_candidate(candidate);
+        }
+    }
+    if !data.blocked.is_empty() {
+        println!();
+        println!("Blocked by a safety check");
+        for blocked in &data.blocked {
+            let reasons: Vec<&str> = blocked
+                .blocked_by
+                .iter()
+                .map(|r| block_reason(*r))
+                .collect();
+            println!(
+                "  {:>9}  {}",
+                format_size(blocked.allocated_bytes),
+                blocked.path
+            );
+            println!("             {}", reasons.join("; "));
+        }
+    }
+    if !data.not_needed.is_empty() {
+        println!();
+        println!("{} more eligible items not needed.", data.not_needed.len());
+    }
+    println!();
+    println!("Nothing was changed. This is a plan only.");
+    print_trust(report);
+}
+
+fn print_candidate(candidate: &Candidate) {
+    println!(
+        "  {:>9}  {}",
+        format_size(candidate.reclaimable_bytes_estimate),
+        candidate.path
+    );
+    println!("             {}", candidate.reason);
+    println!("             Loses: {}", candidate.loses);
+    println!(
+        "             Rebuild: {} ({}, {} network)",
+        candidate.regenerate,
+        rebuild_time(candidate.rebuild_cost.time),
+        network_cost(candidate.rebuild_cost.network)
+    );
+}
+
+fn git_status(status: GitStatus) -> &'static str {
+    match status {
+        GitStatus::Clean => "git clean",
+        GitStatus::Dirty => "uncommitted changes",
+        GitStatus::Untracked => "untracked files",
+        GitStatus::UnpushedCommits => "unpushed commits",
+        GitStatus::NotARepository => "not in git",
+        GitStatus::Unknown => "git status unknown",
+    }
+}
+
+fn block_reason(reason: BlockReason) -> &'static str {
+    match reason {
+        BlockReason::RecentActivity => "project changed recently",
+        BlockReason::RunningProcess => "a process is working in this project",
+        BlockReason::UncommittedChanges => "project has uncommitted changes",
+        BlockReason::UnpushedCommits => "project has unpushed commits",
+        BlockReason::GitTrackedFiles => "git tracks files here",
+        BlockReason::UntrackedWork => "holds untracked files",
+        BlockReason::NotIgnoredByGit => "git does not ignore this",
+        BlockReason::GitUnavailable => "git could not answer",
+        BlockReason::AppRunning => "the app that owns this is running",
+        BlockReason::ProtectedPath => "protected path",
+        BlockReason::NonUnicodePath => "path is not valid Unicode",
+        BlockReason::IdentityUnavailable => "the OS would not identify this path",
+    }
 }
 
 fn describe_kind(data: &ExplainData) -> &'static str {
@@ -109,16 +253,9 @@ fn describe_kind(data: &ExplainData) -> &'static str {
 fn verdict(verdict: SafetyVerdict) -> &'static str {
     match verdict {
         SafetyVerdict::Protected => "Protected",
+        SafetyVerdict::Blocked => "Blocked",
         SafetyVerdict::ReviewRequired => "Review required",
         SafetyVerdict::Unknown => "Unknown",
-    }
-}
-
-fn pending_check(check: Protection) -> &'static str {
-    match check {
-        Protection::InsideActiveProject => "whether the project is in active use",
-        Protection::ContainsGitTrackedFiles => "whether git tracks anything here",
-        Protection::ContainsUntrackedWork => "whether it holds untracked work",
     }
 }
 

@@ -1,0 +1,25 @@
+format_version = 1
+id = "pnpm-store"
+name = "pnpm store"
+platforms = ["macos", "windows"]
+category = "package_cache"
+action = "move_to_trash"
+risk = "medium"
+rebuild_cost = { time = "minutes", network = "high" }
+
+[detect]
+home_paths = [
+  { path = "Library/pnpm/store", platform = "macos" },
+  { path = "AppData/Local/pnpm/store", platform = "windows" },
+]
+
+[protect]
+when = []
+apps = ["pnpm"]
+
+[explain]
+reason = "Shared package store that pnpm refills on the next install"
+loses = "Store copies of packages. Projects keep theirs through hard links, so this may free little"
+
+[[regenerate]]
+hint = "pnpm install"

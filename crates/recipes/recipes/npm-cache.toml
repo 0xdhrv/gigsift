@@ -1,0 +1,25 @@
+format_version = 1
+id = "npm-cache"
+name = "npm cache"
+platforms = ["macos", "windows"]
+category = "package_cache"
+action = "move_to_trash"
+risk = "low"
+rebuild_cost = { time = "minutes", network = "high" }
+
+[detect]
+home_paths = [
+  { path = ".npm/_cacache", platform = "macos" },
+  { path = "AppData/Local/npm-cache/_cacache", platform = "windows" },
+]
+
+[protect]
+when = []
+apps = ["npm"]
+
+[explain]
+reason = "Downloaded package tarballs that npm fetches again on demand"
+loses = "Offline copies of packages"
+
+[[regenerate]]
+hint = "npm install"

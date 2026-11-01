@@ -1,0 +1,21 @@
+format_version = 1
+id = "maven-repository"
+name = "Maven local repository"
+platforms = ["macos", "windows"]
+category = "package_cache"
+action = "report_only"
+risk = "medium"
+rebuild_cost = { time = "minutes", network = "high" }
+
+[detect]
+home_paths = [{ path = ".m2/repository" }]
+
+[protect]
+when = []
+
+[explain]
+reason = "Downloaded dependencies, which can also hold locally installed artifacts"
+loses = "Dependencies, plus anything published only with mvn install"
+
+[[regenerate]]
+hint = "mvn install"

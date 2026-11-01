@@ -15,6 +15,7 @@ gigsift-platform-macos = { path = "crates/platform-macos", version = "0.1.0" }
 gigsift-platform-windows = { path = "crates/platform-windows", version = "0.1.0" }
 gigsift-recipes = { path = "crates/recipes", version = "0.1.0" }
 gigsift-scanner = { path = "crates/scanner", version = "0.1.0" }
+gigsift-store = { path = "crates/store", version = "0.1.0" }
 
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
@@ -26,9 +27,11 @@ rayon = "1"
 schemars = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sysinfo = { version = "0.38", default-features = false, features = ["system"] }
 tempfile = "3"
 thiserror = "2"
 toml = "1"
+ulid = "1"
 windows-sys = "0.61"
 
 [workspace.lints.rust]

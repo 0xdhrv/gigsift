@@ -18,7 +18,10 @@
     },
     "ErrorCode": {
       "enum": [
-        "root_not_readable"
+        "root_not_readable",
+        "invalid_plan_id",
+        "plan_not_found",
+        "storage_failed"
       ],
       "type": "string"
     }
