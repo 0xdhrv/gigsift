@@ -6,8 +6,9 @@
 
 use std::fs::Metadata;
 use std::os::unix::fs::MetadataExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use gigsift_core::RecycleError;
 use gigsift_core::probe::{FileId, FileProbe};
 
 /// Skipped when scanning from `/`: other volumes, plus the view of the data
@@ -43,6 +44,45 @@ pub fn is_placeholder(meta: &Metadata) -> bool {
 #[cfg(not(target_os = "macos"))]
 pub fn is_placeholder(_meta: &Metadata) -> bool {
     false
+}
+
+/// Moves `path` to the Trash and returns where it went. `NSFileManager` fails on
+/// volumes without a Trash rather than deleting, which is the behavior gigsift
+/// relies on: there is no fallback here that destroys data.
+#[cfg(target_os = "macos")]
+pub fn move_to_trash(path: &Path) -> Result<Option<PathBuf>, RecycleError> {
+    use objc2_foundation::{NSFileManager, NSString, NSURL};
+
+    /// `NSFeatureUnsupportedError`, what Cocoa returns for a volume with no Trash.
+    const FEATURE_UNSUPPORTED: isize = 3328;
+
+    let text = path
+        .to_str()
+        .ok_or_else(|| RecycleError::Failed("path is not valid Unicode".to_owned()))?;
+    let url = NSURL::fileURLWithPath(&NSString::from_str(text));
+    let manager = NSFileManager::defaultManager();
+    let mut location = None;
+    manager
+        .trashItemAtURL_resultingItemURL_error(&url, Some(&mut location))
+        .map_err(|error| {
+            let detail = error.localizedDescription().to_string();
+            if error.code() == FEATURE_UNSUPPORTED {
+                RecycleError::Unavailable(detail)
+            } else {
+                RecycleError::Failed(detail)
+            }
+        })?;
+    Ok(location
+        .and_then(|url| url.path())
+        .map(|path| PathBuf::from(path.to_string())))
+}
+
+/// Linux has no native route here yet, so nothing is ever moved or deleted.
+#[cfg(not(target_os = "macos"))]
+pub fn move_to_trash(_path: &Path) -> Result<Option<PathBuf>, RecycleError> {
+    Err(RecycleError::Unavailable(
+        "this platform is not supported yet".to_owned(),
+    ))
 }
 
 #[cfg(target_os = "macos")]
@@ -129,5 +169,28 @@ mod apfs {
             private_bytes: u64::try_from(reply.private_size).ok()?,
             references: reply.clone_refcnt,
         })
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    /// Touches the real Trash, so only CI runners opt in.
+    #[test]
+    fn a_folder_lands_in_the_trash() {
+        if std::env::var_os("GIGSIFT_TEST_REAL_TRASH").is_none() {
+            return;
+        }
+        let home = std::env::home_dir().unwrap();
+        let dir = home.join(format!("gigsift-trash-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("inner")).unwrap();
+        std::fs::write(dir.join("inner/file.bin"), vec![7u8; 4096]).unwrap();
+
+        let location = move_to_trash(&dir).unwrap();
+
+        assert!(!dir.exists());
+        let location = location.expect("macOS should say where it went");
+        assert!(location.exists(), "{}", location.display());
     }
 }

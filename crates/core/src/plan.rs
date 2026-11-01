@@ -88,6 +88,9 @@ pub struct PlanData {
     pub root: String,
     pub profile: Profile,
     pub target_bytes: u64,
+    /// The activity window this plan was built with. Apply reuses it, so a plan
+    /// can't pass revalidation under looser rules than it was created with.
+    pub active_within_seconds: u64,
     /// Chosen to reach the target, in the order they were picked.
     pub items: Vec<PlanItem>,
     /// Sum of `reclaimable_bytes_estimate` across `items`.
@@ -105,6 +108,7 @@ pub struct PlanData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PlanItem {
+    pub recipe_id: String,
     pub candidate: Candidate,
     pub identity: FileIdentity,
 }

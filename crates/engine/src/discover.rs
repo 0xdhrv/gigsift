@@ -94,7 +94,7 @@ fn home_skip_list(home: &Path) -> Vec<PathBuf> {
     dot_folders.chain(named).collect()
 }
 
-fn empty_meta() -> ScanMeta {
+pub(crate) fn empty_meta() -> ScanMeta {
     ScanMeta {
         scanned_at: Timestamp::now(),
         scan_completeness: ScanCompleteness {
@@ -110,7 +110,7 @@ fn empty_meta() -> ScanMeta {
 }
 
 /// Each artifact gets its own scan. The run is only as complete as its worst one.
-fn merge(total: &mut ScanMeta, scan: &ScanMeta) {
+pub(crate) fn merge(total: &mut ScanMeta, scan: &ScanMeta) {
     let completeness = &mut total.scan_completeness;
     completeness.directories_visited += scan.scan_completeness.directories_visited;
     completeness.directories_unreadable += scan.scan_completeness.directories_unreadable;

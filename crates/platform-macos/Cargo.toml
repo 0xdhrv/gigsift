@@ -12,5 +12,8 @@ gigsift-core.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-foundation.workspace = true
+
 [lints]
 workspace = true

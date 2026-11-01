@@ -2,6 +2,8 @@
 
 #![cfg(windows)]
 
+mod trash;
+
 use std::fs::Metadata;
 use std::mem;
 use std::os::windows::ffi::OsStrExt;
@@ -10,6 +12,7 @@ use std::path::Path;
 use std::ptr;
 
 use gigsift_core::probe::{FileId, FileProbe};
+pub use trash::move_to_trash;
 use windows_sys::Win32::Foundation::{
     CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE, NO_ERROR,
 };

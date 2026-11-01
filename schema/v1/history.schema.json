@@ -1,0 +1,228 @@
+{
+  "$defs": {
+    "ActionStatus": {
+      "oneOf": [
+        {
+          "enum": [
+            "moved",
+            "skipped",
+            "failed"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "interrupted",
+          "description": "Recorded before acting, and never finished. The process stopped midway, so\ncheck the path before assuming either way.",
+          "type": "string"
+        }
+      ]
+    },
+    "BlockReason": {
+      "description": "Why something is not a candidate right now.",
+      "oneOf": [
+        {
+          "enum": [
+            "uncommitted_changes",
+            "unpushed_commits"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "recent_activity",
+          "description": "Project files changed inside the activity window.",
+          "type": "string"
+        },
+        {
+          "const": "running_process",
+          "description": "A running process is working inside the project.",
+          "type": "string"
+        },
+        {
+          "const": "git_tracked_files",
+          "description": "Git tracks files here, so it is source.",
+          "type": "string"
+        },
+        {
+          "const": "untracked_work",
+          "description": "Holds files git neither tracks nor ignores.",
+          "type": "string"
+        },
+        {
+          "const": "not_ignored_by_git",
+          "description": "The recipe needs git to ignore this before calling it output.",
+          "type": "string"
+        },
+        {
+          "const": "git_unavailable",
+          "description": "Git could not answer, and a missing answer is not a clean one.",
+          "type": "string"
+        },
+        {
+          "const": "app_running",
+          "description": "An application that owns this data is running.",
+          "type": "string"
+        },
+        {
+          "const": "protected_path",
+          "description": "The safety policy never allows this path.",
+          "type": "string"
+        },
+        {
+          "const": "non_unicode_path",
+          "description": "The path can't be carried exactly in JSON, so a plan could not name it.",
+          "type": "string"
+        },
+        {
+          "const": "identity_unavailable",
+          "description": "The OS would not identify this path, so apply could not revalidate it.",
+          "type": "string"
+        }
+      ]
+    },
+    "ChangeKind": {
+      "description": "Ways an item no longer matches what its plan recorded.",
+      "oneOf": [
+        {
+          "enum": [
+            "missing",
+            "modified",
+            "size_changed"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "not_a_directory",
+          "description": "No longer a real directory, such as one replaced by a symlink.",
+          "type": "string"
+        },
+        {
+          "const": "different_file",
+          "description": "A different file now sits at this path.",
+          "type": "string"
+        },
+        {
+          "const": "parent_changed",
+          "description": "A folder above it was replaced, so the path leads somewhere else.",
+          "type": "string"
+        },
+        {
+          "const": "no_longer_recognized",
+          "description": "Its recipe no longer recognizes it, or no longer exists.",
+          "type": "string"
+        },
+        {
+          "const": "identity_unavailable",
+          "description": "The OS would not identify it, so nothing can be compared.",
+          "type": "string"
+        }
+      ]
+    },
+    "HistoryData": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "description": "Newest first.",
+          "items": {
+            "$ref": "#/$defs/HistoryEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "actions"
+      ],
+      "type": "object"
+    },
+    "HistoryEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "type": "string"
+        },
+        "blocked_by": {
+          "items": {
+            "$ref": "#/$defs/BlockReason"
+          },
+          "type": "array"
+        },
+        "changed": {
+          "items": {
+            "$ref": "#/$defs/ChangeKind"
+          },
+          "type": "array"
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "moved_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "type": "string"
+        },
+        "plan_id": {
+          "type": "string"
+        },
+        "recipe_id": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/ActionStatus"
+        },
+        "trash_location": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "action_id",
+        "run_id",
+        "plan_id",
+        "started_at",
+        "path",
+        "recipe_id",
+        "status",
+        "changed",
+        "blocked_by",
+        "moved_bytes"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "`gigsift history`. History reports what happened rather than what is on disk,\nso it carries no scan metadata.",
+  "properties": {
+    "command": {
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/HistoryData"
+    },
+    "schema_version": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command",
+    "data"
+  ],
+  "title": "HistoryResponse",
+  "type": "object"
+}

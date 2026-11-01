@@ -1,0 +1,409 @@
+{
+  "$defs": {
+    "ApplyData": {
+      "additionalProperties": false,
+      "description": "`data` for `gigsift clean apply`.",
+      "properties": {
+        "failed_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "moved_bytes": {
+          "description": "Bytes now in the Trash. Disk space only returns once the Trash is emptied.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "moved_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "plan_id": {
+          "type": "string"
+        },
+        "results": {
+          "items": {
+            "$ref": "#/$defs/ApplyResult"
+          },
+          "type": "array"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "skipped_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run_id",
+        "plan_id",
+        "results",
+        "moved_count",
+        "skipped_count",
+        "failed_count",
+        "moved_bytes"
+      ],
+      "type": "object"
+    },
+    "ApplyOutcome": {
+      "oneOf": [
+        {
+          "enum": [
+            "moved"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "skipped",
+          "description": "Left alone because revalidation objected.",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "Left in place because the OS refused or the move failed.",
+          "type": "string"
+        }
+      ]
+    },
+    "ApplyResult": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "type": "string"
+        },
+        "blocked_by": {
+          "description": "Checks that failed on this run. Any entry means it was skipped.",
+          "items": {
+            "$ref": "#/$defs/BlockReason"
+          },
+          "type": "array"
+        },
+        "candidate_id": {
+          "type": "string"
+        },
+        "changed": {
+          "description": "How the item differs from the plan. Any entry means it was skipped.",
+          "items": {
+            "$ref": "#/$defs/ChangeKind"
+          },
+          "type": "array"
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "moved_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "outcome": {
+          "$ref": "#/$defs/ApplyOutcome"
+        },
+        "path": {
+          "type": "string"
+        },
+        "trash_location": {
+          "description": "Where it went, when the OS says. Needed to restore it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "action_id",
+        "candidate_id",
+        "path",
+        "outcome",
+        "changed",
+        "blocked_by",
+        "moved_bytes"
+      ],
+      "type": "object"
+    },
+    "BlockReason": {
+      "description": "Why something is not a candidate right now.",
+      "oneOf": [
+        {
+          "enum": [
+            "uncommitted_changes",
+            "unpushed_commits"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "recent_activity",
+          "description": "Project files changed inside the activity window.",
+          "type": "string"
+        },
+        {
+          "const": "running_process",
+          "description": "A running process is working inside the project.",
+          "type": "string"
+        },
+        {
+          "const": "git_tracked_files",
+          "description": "Git tracks files here, so it is source.",
+          "type": "string"
+        },
+        {
+          "const": "untracked_work",
+          "description": "Holds files git neither tracks nor ignores.",
+          "type": "string"
+        },
+        {
+          "const": "not_ignored_by_git",
+          "description": "The recipe needs git to ignore this before calling it output.",
+          "type": "string"
+        },
+        {
+          "const": "git_unavailable",
+          "description": "Git could not answer, and a missing answer is not a clean one.",
+          "type": "string"
+        },
+        {
+          "const": "app_running",
+          "description": "An application that owns this data is running.",
+          "type": "string"
+        },
+        {
+          "const": "protected_path",
+          "description": "The safety policy never allows this path.",
+          "type": "string"
+        },
+        {
+          "const": "non_unicode_path",
+          "description": "The path can't be carried exactly in JSON, so a plan could not name it.",
+          "type": "string"
+        },
+        {
+          "const": "identity_unavailable",
+          "description": "The OS would not identify this path, so apply could not revalidate it.",
+          "type": "string"
+        }
+      ]
+    },
+    "ChangeKind": {
+      "description": "Ways an item no longer matches what its plan recorded.",
+      "oneOf": [
+        {
+          "enum": [
+            "missing",
+            "modified",
+            "size_changed"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "not_a_directory",
+          "description": "No longer a real directory, such as one replaced by a symlink.",
+          "type": "string"
+        },
+        {
+          "const": "different_file",
+          "description": "A different file now sits at this path.",
+          "type": "string"
+        },
+        {
+          "const": "parent_changed",
+          "description": "A folder above it was replaced, so the path leads somewhere else.",
+          "type": "string"
+        },
+        {
+          "const": "no_longer_recognized",
+          "description": "Its recipe no longer recognizes it, or no longer exists.",
+          "type": "string"
+        },
+        {
+          "const": "identity_unavailable",
+          "description": "The OS would not identify it, so nothing can be compared.",
+          "type": "string"
+        }
+      ]
+    },
+    "CompletenessStatus": {
+      "oneOf": [
+        {
+          "const": "complete",
+          "description": "Every entry under the root was visited.",
+          "type": "string"
+        },
+        {
+          "const": "partial",
+          "description": "Something could not be read, so totals are a lower bound.",
+          "type": "string"
+        }
+      ]
+    },
+    "InaccessiblePath": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "description": "OS error text, for humans. Not stable across platforms or locales.",
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/InaccessibleReason"
+        }
+      },
+      "required": [
+        "path",
+        "reason",
+        "detail"
+      ],
+      "type": "object"
+    },
+    "InaccessibleReason": {
+      "enum": [
+        "permission_denied",
+        "not_found",
+        "path_too_long",
+        "other"
+      ],
+      "type": "string"
+    },
+    "ScanCompleteness": {
+      "additionalProperties": false,
+      "properties": {
+        "directories_unreadable": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "directories_visited": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "entries_unreadable": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "mount_points_skipped": {
+          "description": "Directories on another volume, left out of totals. Not a failure.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/$defs/CompletenessStatus"
+        }
+      },
+      "required": [
+        "status",
+        "directories_visited",
+        "directories_unreadable",
+        "entries_unreadable",
+        "mount_points_skipped"
+      ],
+      "type": "object"
+    },
+    "Warning": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/WarningCode"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "WarningCode": {
+      "oneOf": [
+        {
+          "const": "incomplete_scan",
+          "description": "Totals are a lower bound because some paths could not be read.",
+          "type": "string"
+        },
+        {
+          "const": "full_disk_access_missing",
+          "description": "macOS privacy protection blocked paths; Full Disk Access would reveal them.",
+          "type": "string"
+        },
+        {
+          "const": "changed_during_scan",
+          "description": "Files changed or vanished while being scanned.",
+          "type": "string"
+        },
+        {
+          "const": "non_unicode_paths",
+          "description": "Some paths are not valid Unicode and are shown lossily.",
+          "type": "string"
+        },
+        {
+          "const": "cloud_placeholders",
+          "description": "Files whose content lives in the cloud take little or no local space.",
+          "type": "string"
+        },
+        {
+          "const": "diverged_clones",
+          "description": "Files modified since cloning still share blocks that cannot be attributed,\nso allocated bytes may overcount.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Fields every top-level response carries, wrapped around command-specific data.\n\nTotals are never reported without these: a number with no completeness or\nfreshness attached is not honest about what it covers.",
+  "properties": {
+    "command": {
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/ApplyData"
+    },
+    "inaccessible_paths": {
+      "items": {
+        "$ref": "#/$defs/InaccessiblePath"
+      },
+      "type": "array"
+    },
+    "scan_completeness": {
+      "$ref": "#/$defs/ScanCompleteness"
+    },
+    "scanned_at": {
+      "description": "When the scan behind this response finished.",
+      "type": "string"
+    },
+    "schema_version": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "warnings": {
+      "items": {
+        "$ref": "#/$defs/Warning"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command",
+    "scanned_at",
+    "scan_completeness",
+    "inaccessible_paths",
+    "warnings",
+    "data"
+  ],
+  "title": "Envelope",
+  "type": "object"
+}

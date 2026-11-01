@@ -280,4 +280,8 @@ pub enum ErrorCode {
     InvalidPlanId,
     PlanNotFound,
     StorageFailed,
+    /// Acting needs `--yes` when no one is there to confirm.
+    ConfirmationRequired,
+    /// The run stopped partway. Check `gigsift history` for what happened.
+    ApplyStopped,
 }

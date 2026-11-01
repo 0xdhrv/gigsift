@@ -23,7 +23,9 @@ globset = "0.4"
 jiff = { version = "0.2", features = ["serde"] }
 jsonschema = { version = "0.60", default-features = false }
 libc = "0.2"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSError", "NSFileManager", "NSString", "NSURL"] }
 rayon = "1"
+rusqlite = { version = "0.41", features = ["bundled"] }
 schemars = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -32,6 +34,8 @@ tempfile = "3"
 thiserror = "2"
 toml = "1"
 ulid = "1"
+windows = "0.62"
+windows-core = "0.62"
 windows-sys = "0.61"
 
 [workspace.lints.rust]

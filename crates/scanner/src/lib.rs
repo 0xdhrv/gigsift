@@ -14,7 +14,7 @@ use std::sync::Mutex;
 use gigsift_core::probe::{CloneInfo, FileId, FileProbe};
 use gigsift_core::{
     CompletenessStatus, EntryKind, FileIdentity, InaccessiblePath, InaccessibleReason, PathKind,
-    ScanCompleteness, ScanMeta, Totals, Warning, WarningCode,
+    RecycleError, Recycler, ScanCompleteness, ScanMeta, Totals, Warning, WarningCode,
 };
 use jiff::Timestamp;
 
@@ -175,6 +175,15 @@ pub fn inspect(path: &Path) -> Result<Inspection, RootError> {
         cloud_placeholder: probe.placeholder,
         ..single_entry(path_kind)
     })
+}
+
+/// The OS's own Trash or Recycle Bin. See each platform crate for how it refuses.
+pub struct NativeRecycler;
+
+impl Recycler for NativeRecycler {
+    fn recycle(&self, path: &Path) -> Result<Option<PathBuf>, RecycleError> {
+        platform::move_to_trash(path)
+    }
 }
 
 /// The fingerprint a plan records, so apply can tell if `path` was replaced.

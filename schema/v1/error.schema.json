@@ -17,13 +17,27 @@
       "type": "object"
     },
     "ErrorCode": {
-      "enum": [
-        "root_not_readable",
-        "invalid_plan_id",
-        "plan_not_found",
-        "storage_failed"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "enum": [
+            "root_not_readable",
+            "invalid_plan_id",
+            "plan_not_found",
+            "storage_failed"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "confirmation_required",
+          "description": "Acting needs `--yes` when no one is there to confirm.",
+          "type": "string"
+        },
+        {
+          "const": "apply_stopped",
+          "description": "The run stopped partway. Check `gigsift history` for what happened.",
+          "type": "string"
+        }
+      ]
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",

@@ -3,6 +3,7 @@
 
 pub mod activity;
 pub mod analysis;
+mod apply;
 mod discover;
 mod explain;
 pub mod git;
@@ -13,6 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub use analysis::{Analyzer, ProjectContext};
+pub use apply::{ApplyError, apply_plan};
 pub use explain::explain;
 pub use plan::create_plan;
 pub use projects::find_projects;

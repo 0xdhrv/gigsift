@@ -68,6 +68,7 @@ pub fn create_plan(
             continue;
         };
         let item = PlanItem {
+            recipe_id: artifact.hit.recipe.id.clone(),
             candidate: candidate(artifact),
             identity,
         };
@@ -86,6 +87,7 @@ pub fn create_plan(
         root: path_string(&root),
         profile,
         target_bytes,
+        active_within_seconds: analyzer.active_within_seconds(),
         items,
         reclaimable_bytes_estimate: reclaimable,
         target_met: reclaimable >= target_bytes,

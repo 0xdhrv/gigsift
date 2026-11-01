@@ -5,6 +5,7 @@
 //! [`SCHEMA_VERSION`] and regenerate `/schema`.
 
 pub mod age;
+pub mod apply;
 pub mod candidate;
 pub mod plan;
 pub mod probe;
@@ -12,6 +13,7 @@ pub mod report;
 pub mod safety;
 pub mod size;
 
+pub use apply::*;
 pub use candidate::*;
 pub use plan::*;
 pub use report::*;

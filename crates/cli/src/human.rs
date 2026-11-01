@@ -2,9 +2,9 @@
 
 use gigsift_core::size::format_size;
 use gigsift_core::{
-    BlockReason, Candidate, CompletenessStatus, EntryKind, Envelope, ExplainData, GitStatus,
-    NetworkCost, PathKind, PlanData, ProjectsData, RebuildTime, Risk, SafetyVerdict, ScanData,
-    SizedEntry, TopData,
+    ActionStatus, ApplyData, ApplyOutcome, BlockReason, Candidate, ChangeKind, CompletenessStatus,
+    EntryKind, Envelope, ExplainData, GitStatus, HistoryData, NetworkCost, PathKind, PlanData,
+    ProjectsData, RebuildTime, Risk, SafetyVerdict, ScanData, SizedEntry, TopData,
 };
 
 pub fn print_scan(report: &Envelope<ScanData>) {
@@ -193,6 +193,91 @@ pub fn print_plan(report: &Envelope<PlanData>) {
     println!();
     println!("Nothing was changed. This is a plan only.");
     print_trust(report);
+}
+
+pub fn print_apply(report: &Envelope<ApplyData>) {
+    let data = &report.data;
+    for result in &data.results {
+        match result.outcome {
+            ApplyOutcome::Moved => {
+                println!(
+                    "  Moved    {:>9}  {}",
+                    format_size(result.moved_bytes),
+                    result.path
+                );
+            }
+            ApplyOutcome::Skipped => {
+                println!("  Skipped             {}", result.path);
+                print_reasons(&result.changed, &result.blocked_by);
+            }
+            ApplyOutcome::Failed => {
+                println!("  Failed              {}", result.path);
+                if let Some(error) = &result.error {
+                    println!("                      {error}");
+                }
+            }
+        }
+    }
+    println!();
+    println!(
+        "{} moved, {} skipped, {} failed.",
+        data.moved_count, data.skipped_count, data.failed_count
+    );
+    if data.moved_count > 0 {
+        println!(
+            "{} is now in the Trash. Disk space returns when you empty it.",
+            format_size(data.moved_bytes)
+        );
+    }
+    print_trust(report);
+}
+
+pub fn print_history(data: &HistoryData) {
+    if data.actions.is_empty() {
+        println!("gigsift has not done anything yet.");
+    }
+    for action in &data.actions {
+        println!(
+            "{}  {:<11}  {}",
+            action.started_at.strftime("%Y-%m-%d %H:%M"),
+            action_status(action.status),
+            action.path
+        );
+        print_reasons(&action.changed, &action.blocked_by);
+        if let Some(error) = &action.error {
+            println!("                      {error}");
+        }
+    }
+}
+
+fn print_reasons(changed: &[ChangeKind], blocked_by: &[BlockReason]) {
+    let changes = changed.iter().map(|kind| change_kind(*kind));
+    let blocks = blocked_by.iter().map(|reason| block_reason(*reason));
+    for reason in changes.chain(blocks) {
+        println!("                      {reason}");
+    }
+}
+
+fn action_status(status: ActionStatus) -> &'static str {
+    match status {
+        ActionStatus::Interrupted => "interrupted",
+        ActionStatus::Moved => "moved",
+        ActionStatus::Skipped => "skipped",
+        ActionStatus::Failed => "failed",
+    }
+}
+
+fn change_kind(kind: ChangeKind) -> &'static str {
+    match kind {
+        ChangeKind::Missing => "no longer there",
+        ChangeKind::NotADirectory => "no longer a folder",
+        ChangeKind::DifferentFile => "a different folder is here now",
+        ChangeKind::ParentChanged => "a folder above it was replaced",
+        ChangeKind::Modified => "changed since the plan",
+        ChangeKind::SizeChanged => "size changed since the plan",
+        ChangeKind::NoLongerRecognized => "no longer recognized",
+        ChangeKind::IdentityUnavailable => "could not be identified",
+    }
 }
 
 fn print_candidate(candidate: &Candidate) {

@@ -1,6 +1,6 @@
 [package]
 name = "gigsift-store"
-description = "Local persistence for gigsift plans"
+description = "Local SQLite persistence for gigsift plans and the audit log"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,11 +8,12 @@ repository.workspace = true
 
 [dependencies]
 gigsift-core.workspace = true
+jiff.workspace = true
+rusqlite.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-jiff.workspace = true
 tempfile.workspace = true
 
 [lints]

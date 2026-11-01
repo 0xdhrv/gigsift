@@ -41,9 +41,14 @@ impl RunningProcesses {
     }
 
     pub fn none() -> Self {
+        Self::from_parts(Vec::new(), Vec::new())
+    }
+
+    /// A fixed set of processes. `names` must be lowercase.
+    pub fn from_parts(working_dirs: Vec<PathBuf>, names: Vec<String>) -> Self {
         Self {
-            working_dirs: Vec::new(),
-            names: Vec::new(),
+            working_dirs,
+            names,
         }
     }
 

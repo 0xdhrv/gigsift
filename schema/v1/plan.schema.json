@@ -316,6 +316,12 @@
       "additionalProperties": false,
       "description": "`data` for `gigsift clean plan` and `gigsift clean show`.\n\nA plan never changes after creation. Applying one must revalidate every item.",
       "properties": {
+        "active_within_seconds": {
+          "description": "The activity window this plan was built with. Apply reuses it, so a plan\ncan't pass revalidation under looser rules than it was created with.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "advisories": {
           "description": "Worth knowing about, but only a guided tool or the user can act on them.",
           "items": {
@@ -378,6 +384,7 @@
         "root",
         "profile",
         "target_bytes",
+        "active_within_seconds",
         "items",
         "reclaimable_bytes_estimate",
         "target_met",
@@ -396,9 +403,13 @@
         },
         "identity": {
           "$ref": "#/$defs/FileIdentity"
+        },
+        "recipe_id": {
+          "type": "string"
         }
       },
       "required": [
+        "recipe_id",
         "candidate",
         "identity"
       ],

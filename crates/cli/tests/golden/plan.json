@@ -1,6 +1,7 @@
 {
   "command": "clean plan",
   "data": {
+    "active_within_seconds": 0,
     "advisories": [],
     "blocked": [],
     "items": [
@@ -36,7 +37,8 @@
           "file": "<machine>",
           "modified_at": "<timestamp>",
           "volume": "<machine>"
-        }
+        },
+        "recipe_id": "node-modules"
       }
     ],
     "not_needed": [],

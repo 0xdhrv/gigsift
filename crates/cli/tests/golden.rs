@@ -238,10 +238,104 @@ fn clean_show_reports_a_missing_plan_in_the_error_contract() {
     assert_eq!(value["error"]["code"], "plan_not_found");
 }
 
+fn saved_plan(root: &Path, data: &Path) -> String {
+    let output = gigsift_with_data(
+        data,
+        &[
+            "clean",
+            "plan",
+            root.to_str().unwrap(),
+            "--target",
+            "1kb",
+            "--active-within",
+            "0d",
+            "--json",
+        ],
+    );
+    assert!(output.status.success(), "{output:?}");
+    let plan: Value = serde_json::from_slice(&output.stdout).unwrap();
+    plan["data"]["plan_id"].as_str().unwrap().to_owned()
+}
+
 #[test]
-fn the_cli_offers_no_way_to_apply_a_plan_yet() {
-    let output = gigsift(&["clean", "apply", "plan_01JABCDEFGHJKMNPQRSTVWXYZ0"]);
+fn apply_refuses_without_confirmation_when_no_one_can_answer() {
+    let dir = fixture();
+    let root = resolved_root(&dir);
+    let data = tempdir().unwrap();
+    let id = saved_plan(&root, data.path());
+
+    for args in [
+        vec!["clean", "apply", id.as_str()],
+        vec!["clean", "apply", id.as_str(), "--json"],
+    ] {
+        let output = gigsift_with_data(data.path(), &args);
+        assert!(!output.status.success(), "{output:?}");
+        assert!(root.join("app/node_modules").exists());
+    }
+
+    let output = gigsift_with_data(data.path(), &["clean", "apply", &id, "--json"]);
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(validator("error").is_valid(&value));
+    assert_eq!(value["error"]["code"], "confirmation_required");
+
+    let history = gigsift_with_data(data.path(), &["history", "--json"]);
+    let value: Value = serde_json::from_slice(&history.stdout).unwrap();
+    assert_eq!(value["data"]["actions"], json!([]));
+}
+
+#[test]
+fn apply_with_an_unknown_plan_moves_nothing() {
+    let data = tempdir().unwrap();
+    let id = "plan_01JABCDEFGHJKMNPQRSTVWXYZ0";
+
+    let output = gigsift_with_data(data.path(), &["clean", "apply", id, "--yes", "--json"]);
+
     assert!(!output.status.success());
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["error"]["code"], "plan_not_found");
+}
+
+#[test]
+fn history_json_matches_its_schema_when_empty() {
+    let data = tempdir().unwrap();
+
+    let output = gigsift_with_data(data.path(), &["history", "--json"]);
+
+    assert!(output.status.success(), "{output:?}");
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(validator("history").is_valid(&value));
+}
+
+/// Moves a fixture to the real Trash, so only CI runners opt in.
+#[test]
+fn a_full_run_moves_to_the_real_trash_and_records_it() {
+    if std::env::var_os("GIGSIFT_TEST_REAL_TRASH").is_none() {
+        return;
+    }
+    let dir = fixture();
+    let root = resolved_root(&dir);
+    let data = tempdir().unwrap();
+    let id = saved_plan(&root, data.path());
+
+    let output = gigsift_with_data(data.path(), &["clean", "apply", &id, "--yes", "--json"]);
+
+    assert!(output.status.success(), "{output:?}");
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(validator("apply").is_valid(&value));
+    assert_eq!(value["data"]["moved_count"], 1);
+    assert_eq!(value["data"]["failed_count"], 0);
+    assert!(!root.join("app/node_modules").exists());
+    assert!(root.join("app/src/main.ts").exists());
+    assert!(root.join("app/.env").exists());
+    let location = value["data"]["results"][0]["trash_location"]
+        .as_str()
+        .unwrap();
+    assert!(Path::new(location).exists(), "{location}");
+
+    let history = gigsift_with_data(data.path(), &["history", "--json"]);
+    let value: Value = serde_json::from_slice(&history.stdout).unwrap();
+    assert!(validator("history").is_valid(&value));
+    assert_eq!(value["data"]["actions"][0]["status"], "moved");
 }
 
 #[test]

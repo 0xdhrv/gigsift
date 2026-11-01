@@ -81,6 +81,10 @@ impl<'a> Analyzer<'a> {
         )
     }
 
+    pub(crate) fn active_within_seconds(&self) -> u64 {
+        self.active_within_seconds
+    }
+
     /// The project around `start`, if any. The search stops at home: a stray
     /// `package.json` there doesn't make everything under it one project.
     pub fn project(&self, start: &Path) -> Option<Rc<ProjectContext>> {
