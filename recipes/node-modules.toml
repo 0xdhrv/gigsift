@@ -1,0 +1,38 @@
+format_version = 1
+id = "node-modules"
+name = "Node.js dependencies"
+platforms = ["macos", "windows"]
+category = "developer_dependency"
+action = "move_to_trash"
+risk = "low"
+rebuild_cost = { time = "minutes", network = "high" }
+
+[detect]
+paths = ["**/node_modules"]
+parent_markers = ["package.json"]
+
+[protect]
+when = ["inside_active_project", "contains_git_tracked_files", "contains_untracked_work"]
+
+[explain]
+reason = "Reinstallable dependencies declared by package.json"
+loses = "Installed packages, plus any local edits made inside them"
+
+[[regenerate]]
+marker = "pnpm-lock.yaml"
+hint = "pnpm install"
+
+[[regenerate]]
+marker = "yarn.lock"
+hint = "yarn install"
+
+[[regenerate]]
+marker = "bun.lockb"
+hint = "bun install"
+
+[[regenerate]]
+marker = "bun.lock"
+hint = "bun install"
+
+[[regenerate]]
+hint = "npm install"

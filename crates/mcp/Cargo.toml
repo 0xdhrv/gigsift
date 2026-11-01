@@ -1,0 +1,10 @@
+[package]
+name = "gigsift-mcp"
+description = "MCP stdio server for gigsift (not implemented yet)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true

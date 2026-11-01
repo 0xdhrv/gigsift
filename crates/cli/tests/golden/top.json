@@ -1,0 +1,39 @@
+{
+  "command": "top",
+  "data": {
+    "entries": [
+      {
+        "allocated_bytes": "<allocated>",
+        "kind": "directory",
+        "logical_bytes": 2210000,
+        "path": "<root>"
+      },
+      {
+        "allocated_bytes": "<allocated>",
+        "kind": "directory",
+        "logical_bytes": 2210000,
+        "path": "<root>/app"
+      },
+      {
+        "allocated_bytes": "<allocated>",
+        "kind": "file",
+        "logical_bytes": 2000000,
+        "path": "<root>/app/clip-link.mov"
+      }
+    ],
+    "min_allocated_bytes": 100000,
+    "root": "<root>",
+    "truncated": 3
+  },
+  "inaccessible_paths": [],
+  "scan_completeness": {
+    "directories_unreadable": 0,
+    "directories_visited": 6,
+    "entries_unreadable": 0,
+    "mount_points_skipped": 0,
+    "status": "complete"
+  },
+  "scanned_at": "<timestamp>",
+  "schema_version": 1,
+  "warnings": []
+}

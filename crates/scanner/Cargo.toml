@@ -1,0 +1,24 @@
+[package]
+name = "gigsift-scanner"
+description = "Parallel directory walk and honest size accounting for gigsift"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gigsift-core.workspace = true
+jiff.workspace = true
+rayon.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+gigsift-platform-macos.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+gigsift-platform-windows.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

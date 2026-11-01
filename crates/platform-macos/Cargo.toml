@@ -1,0 +1,16 @@
+[package]
+name = "gigsift-platform-macos"
+description = "macOS filesystem probes for gigsift"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gigsift-core.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[lints]
+workspace = true

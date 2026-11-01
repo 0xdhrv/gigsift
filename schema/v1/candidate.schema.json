@@ -1,0 +1,202 @@
+{
+  "$defs": {
+    "Action": {
+      "description": "The fixed allow-list of things a recipe may recommend. There is deliberately\nno variant that carries a command.",
+      "enum": [
+        "move_to_trash",
+        "report_only",
+        "guided_tool"
+      ],
+      "type": "string"
+    },
+    "Category": {
+      "enum": [
+        "developer_dependency",
+        "build_artifact",
+        "python_environment",
+        "package_cache",
+        "tool_cache",
+        "model_cache"
+      ],
+      "type": "string"
+    },
+    "GitStatus": {
+      "oneOf": [
+        {
+          "enum": [
+            "clean",
+            "dirty",
+            "untracked",
+            "unpushed_commits",
+            "not_a_repository"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "unknown",
+          "description": "Git could not be consulted. Treated as unsafe, never as clean.",
+          "type": "string"
+        }
+      ]
+    },
+    "NetworkCost": {
+      "enum": [
+        "none",
+        "low",
+        "high"
+      ],
+      "type": "string"
+    },
+    "ProjectRef": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "type": "boolean"
+        },
+        "last_activity": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "root",
+        "active"
+      ],
+      "type": "object"
+    },
+    "RebuildCost": {
+      "additionalProperties": false,
+      "properties": {
+        "network": {
+          "$ref": "#/$defs/NetworkCost"
+        },
+        "time": {
+          "$ref": "#/$defs/RebuildTime"
+        }
+      },
+      "required": [
+        "time",
+        "network"
+      ],
+      "type": "object"
+    },
+    "RebuildTime": {
+      "enum": [
+        "seconds",
+        "minutes",
+        "hours"
+      ],
+      "type": "string"
+    },
+    "Risk": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A single item a cleanup plan proposes. Producing one never touches the disk.",
+  "properties": {
+    "allocated_bytes": {
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "candidate_id": {
+      "type": "string"
+    },
+    "category": {
+      "$ref": "#/$defs/Category"
+    },
+    "confidence": {
+      "format": "double",
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "type": "number"
+    },
+    "git_status": {
+      "$ref": "#/$defs/GitStatus"
+    },
+    "logical_bytes": {
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "loses": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "project": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProjectRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Absent for items that belong to no project, such as a global cache."
+    },
+    "reason": {
+      "type": "string"
+    },
+    "rebuild_cost": {
+      "$ref": "#/$defs/RebuildCost"
+    },
+    "reclaimable_bytes_estimate": {
+      "description": "What removal is expected to free; hard links and clones can make this\nsmaller than `allocated_bytes`.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "recommended_action": {
+      "$ref": "#/$defs/Action"
+    },
+    "regenerate": {
+      "description": "Guidance for a human. gigsift never executes this text.",
+      "type": "string"
+    },
+    "requires_confirmation": {
+      "type": "boolean"
+    },
+    "risk": {
+      "$ref": "#/$defs/Risk"
+    },
+    "schema_version": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "candidate_id",
+    "path",
+    "category",
+    "git_status",
+    "logical_bytes",
+    "allocated_bytes",
+    "reclaimable_bytes_estimate",
+    "reason",
+    "loses",
+    "regenerate",
+    "rebuild_cost",
+    "risk",
+    "confidence",
+    "recommended_action",
+    "requires_confirmation"
+  ],
+  "title": "Candidate",
+  "type": "object"
+}

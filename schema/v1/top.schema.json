@@ -1,0 +1,250 @@
+{
+  "$defs": {
+    "CompletenessStatus": {
+      "oneOf": [
+        {
+          "const": "complete",
+          "description": "Every entry under the root was visited.",
+          "type": "string"
+        },
+        {
+          "const": "partial",
+          "description": "Something could not be read, so totals are a lower bound.",
+          "type": "string"
+        }
+      ]
+    },
+    "EntryKind": {
+      "enum": [
+        "file",
+        "directory"
+      ],
+      "type": "string"
+    },
+    "InaccessiblePath": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "description": "OS error text, for humans. Not stable across platforms or locales.",
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/InaccessibleReason"
+        }
+      },
+      "required": [
+        "path",
+        "reason",
+        "detail"
+      ],
+      "type": "object"
+    },
+    "InaccessibleReason": {
+      "enum": [
+        "permission_denied",
+        "not_found",
+        "path_too_long",
+        "other"
+      ],
+      "type": "string"
+    },
+    "ScanCompleteness": {
+      "additionalProperties": false,
+      "properties": {
+        "directories_unreadable": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "directories_visited": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "entries_unreadable": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "mount_points_skipped": {
+          "description": "Directories on another volume, left out of totals. Not a failure.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/$defs/CompletenessStatus"
+        }
+      },
+      "required": [
+        "status",
+        "directories_visited",
+        "directories_unreadable",
+        "entries_unreadable",
+        "mount_points_skipped"
+      ],
+      "type": "object"
+    },
+    "SizedEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "allocated_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/EntryKind"
+        },
+        "logical_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "kind",
+        "logical_bytes",
+        "allocated_bytes"
+      ],
+      "type": "object"
+    },
+    "TopData": {
+      "additionalProperties": false,
+      "description": "`data` for `gigsift top`.",
+      "properties": {
+        "entries": {
+          "description": "Files and directories at or above the threshold, largest first.",
+          "items": {
+            "$ref": "#/$defs/SizedEntry"
+          },
+          "type": "array"
+        },
+        "min_allocated_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "root": {
+          "type": "string"
+        },
+        "truncated": {
+          "description": "Entries that met the threshold but fell past the limit.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "root",
+        "min_allocated_bytes",
+        "entries",
+        "truncated"
+      ],
+      "type": "object"
+    },
+    "Warning": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/WarningCode"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "WarningCode": {
+      "oneOf": [
+        {
+          "const": "incomplete_scan",
+          "description": "Totals are a lower bound because some paths could not be read.",
+          "type": "string"
+        },
+        {
+          "const": "full_disk_access_missing",
+          "description": "macOS privacy protection blocked paths; Full Disk Access would reveal them.",
+          "type": "string"
+        },
+        {
+          "const": "changed_during_scan",
+          "description": "Files changed or vanished while being scanned.",
+          "type": "string"
+        },
+        {
+          "const": "non_unicode_paths",
+          "description": "Some paths are not valid Unicode and are shown lossily.",
+          "type": "string"
+        },
+        {
+          "const": "cloud_placeholders",
+          "description": "Files whose content lives in the cloud take little or no local space.",
+          "type": "string"
+        },
+        {
+          "const": "diverged_clones",
+          "description": "Files modified since cloning still share blocks that cannot be attributed,\nso allocated bytes may overcount.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Fields every top-level response carries, wrapped around command-specific data.\n\nTotals are never reported without these: a number with no completeness or\nfreshness attached is not honest about what it covers.",
+  "properties": {
+    "command": {
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/TopData"
+    },
+    "inaccessible_paths": {
+      "items": {
+        "$ref": "#/$defs/InaccessiblePath"
+      },
+      "type": "array"
+    },
+    "scan_completeness": {
+      "$ref": "#/$defs/ScanCompleteness"
+    },
+    "scanned_at": {
+      "description": "When the scan behind this response finished.",
+      "type": "string"
+    },
+    "schema_version": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "warnings": {
+      "items": {
+        "$ref": "#/$defs/Warning"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command",
+    "scanned_at",
+    "scan_completeness",
+    "inaccessible_paths",
+    "warnings",
+    "data"
+  ],
+  "title": "Envelope",
+  "type": "object"
+}

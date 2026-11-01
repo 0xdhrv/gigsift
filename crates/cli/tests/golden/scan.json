@@ -1,0 +1,65 @@
+{
+  "command": "scan",
+  "data": {
+    "largest_directories": [
+      {
+        "allocated_bytes": "<allocated>",
+        "kind": "directory",
+        "logical_bytes": 2210000,
+        "path": "<root>"
+      },
+      {
+        "allocated_bytes": "<allocated>",
+        "kind": "directory",
+        "logical_bytes": 2210000,
+        "path": "<root>/app"
+      },
+      {
+        "allocated_bytes": "<allocated>",
+        "kind": "directory",
+        "logical_bytes": 200000,
+        "path": "<root>/app/node_modules"
+      },
+      {
+        "allocated_bytes": "<allocated>",
+        "kind": "directory",
+        "logical_bytes": 200000,
+        "path": "<root>/app/node_modules/left-pad"
+      },
+      {
+        "allocated_bytes": "<allocated>",
+        "kind": "directory",
+        "logical_bytes": 10000,
+        "path": "<root>/app/src"
+      },
+      {
+        "allocated_bytes": "<allocated>",
+        "kind": "directory",
+        "logical_bytes": 0,
+        "path": "<root>/media"
+      }
+    ],
+    "root": "<root>",
+    "totals": {
+      "allocated_bytes": "<allocated>",
+      "clones": 0,
+      "cloud_placeholders": 0,
+      "directories": 6,
+      "files": 3,
+      "hard_link_duplicates": 1,
+      "logical_bytes": 2210000,
+      "symlinks": 0
+    }
+  },
+  "inaccessible_paths": [],
+  "scan_completeness": {
+    "directories_unreadable": 0,
+    "directories_visited": 6,
+    "entries_unreadable": 0,
+    "mount_points_skipped": 0,
+    "status": "complete"
+  },
+  "scanned_at": "<timestamp>",
+  "schema_version": 1,
+  "warnings": []
+}

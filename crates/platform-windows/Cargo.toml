@@ -1,0 +1,20 @@
+[package]
+name = "gigsift-platform-windows"
+description = "Windows filesystem probes for gigsift"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gigsift-core.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Storage_FileSystem",
+] }
+
+[lints]
+workspace = true

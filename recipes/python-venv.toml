@@ -1,0 +1,35 @@
+format_version = 1
+id = "python-venv"
+name = "Python virtual environment"
+platforms = ["macos", "windows"]
+category = "python_environment"
+action = "move_to_trash"
+risk = "medium"
+rebuild_cost = { time = "minutes", network = "high" }
+
+[detect]
+paths = ["**/.venv", "**/venv"]
+# Every venv has this file, and it rules out source folders that are named `venv`.
+inner_markers = ["pyvenv.cfg"]
+
+[protect]
+when = ["inside_active_project", "contains_git_tracked_files", "contains_untracked_work"]
+
+[explain]
+reason = "Virtual environment that can be recreated from the project's dependency files"
+loses = "Installed packages, including any that were never recorded in a dependency file"
+
+[[regenerate]]
+marker = "uv.lock"
+hint = "uv sync"
+
+[[regenerate]]
+marker = "poetry.lock"
+hint = "poetry install"
+
+[[regenerate]]
+marker = "requirements.txt"
+hint = "python -m venv .venv, then pip install -r requirements.txt"
+
+[[regenerate]]
+hint = "python -m venv .venv, then reinstall the packages you need"

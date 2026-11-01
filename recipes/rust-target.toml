@@ -1,0 +1,24 @@
+format_version = 1
+id = "rust-target"
+name = "Rust build output"
+platforms = ["macos", "windows"]
+category = "build_artifact"
+action = "move_to_trash"
+risk = "low"
+rebuild_cost = { time = "minutes", network = "low" }
+
+[detect]
+paths = ["**/target"]
+parent_markers = ["Cargo.toml"]
+# A folder merely named `target` beside Cargo.toml is not proof. Cargo writes these.
+inner_markers = ["CACHEDIR.TAG", ".rustc_info.json"]
+
+[protect]
+when = ["inside_active_project", "contains_git_tracked_files", "contains_untracked_work"]
+
+[explain]
+reason = "Compiler output that Cargo rebuilds from source"
+loses = "Compiled artifacts and incremental build state"
+
+[[regenerate]]
+hint = "cargo build"
