@@ -301,7 +301,7 @@ impl RecipeSet {
                 continue;
             }
             for location in &recipe.detect.home_paths {
-                let path = home.join(&location.path);
+                let path = under_home(home, &location.path);
                 let applies = location.platform.is_none_or(|p| p == platform);
                 if applies && is_real_dir(&path) {
                     found.push((path.clone(), hit(recipe, &path)));
@@ -367,6 +367,14 @@ impl RecipeSet {
         found.sort_by(|a, b| a.0.cmp(&b.0));
         found
     }
+}
+
+/// Recipes always write `/`. Joining by component gives native separators, which
+/// matters on Windows: a `\\?\` path can't contain `/`.
+fn under_home(home: &Path, relative: &str) -> PathBuf {
+    relative
+        .split('/')
+        .fold(home.to_owned(), |path, part| path.join(part))
 }
 
 /// Everything in these folders is an installed package, and a package's own

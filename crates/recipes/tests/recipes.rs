@@ -248,6 +248,18 @@ fn caches_are_found_by_location_under_home() {
 }
 
 #[test]
+fn cache_paths_use_native_separators() {
+    let home = tempdir().unwrap();
+    touch(home.path(), ".cargo/registry/cache/index/serde.crate");
+
+    let set = shipped();
+    let matches = set.home_matches(home.path(), Platform::Macos);
+
+    let expected = home.path().join(".cargo").join("registry").join("cache");
+    assert_eq!(matches[0].0.to_str(), expected.to_str());
+}
+
+#[test]
 fn a_file_inside_a_cache_belongs_to_that_cache() {
     let home = tempdir().unwrap();
     let file = touch(home.path(), ".nuget/packages/x/1.0.0/x.nupkg");

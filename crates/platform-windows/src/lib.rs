@@ -98,14 +98,66 @@ fn join(high: u32, low: u32) -> u64 {
 }
 
 /// Adds the `\\?\` prefix so paths over 260 characters work with raw Win32 calls.
+/// That prefix turns off path parsing, so `/` must become `\` here or the call
+/// fails on a path that is otherwise fine.
 fn to_wide(path: &Path) -> Vec<u16> {
     let mut wide: Vec<u16> = Vec::new();
     let text = path.as_os_str();
-    let already_prefixed = text.encode_wide().take(2).eq([b'\\' as u16, b'\\' as u16]);
+    let backslash = b'\\' as u16;
+    let already_prefixed = text.encode_wide().take(2).eq([backslash, backslash]);
     if path.is_absolute() && !already_prefixed {
         wide.extend(r"\\?\".encode_utf16());
+        wide.extend(text.encode_wide().map(
+            |unit| {
+                if unit == b'/' as u16 { backslash } else { unit }
+            },
+        ));
+    } else {
+        wide.extend(text.encode_wide());
     }
-    wide.extend(text.encode_wide());
     wide.push(0);
     wide
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn wide_text(path: &str) -> String {
+        let wide = to_wide(Path::new(path));
+        String::from_utf16(&wide[..wide.len() - 1]).unwrap()
+    }
+
+    #[test]
+    fn absolute_paths_get_the_long_path_prefix() {
+        assert_eq!(wide_text(r"C:\Users\me"), r"\\?\C:\Users\me");
+    }
+
+    #[test]
+    fn forward_slashes_are_normalized_under_the_prefix() {
+        assert_eq!(
+            wide_text(r"C:\Users\me\.cargo/registry/cache"),
+            r"\\?\C:\Users\me\.cargo\registry\cache"
+        );
+    }
+
+    #[test]
+    fn prefixed_and_relative_paths_are_left_alone() {
+        assert_eq!(wide_text(r"\\?\C:\x"), r"\\?\C:\x");
+        assert_eq!(wide_text(r"relative\x"), r"relative\x");
+    }
+
+    #[test]
+    fn a_folder_reached_through_forward_slashes_can_be_probed() {
+        let root = std::env::temp_dir().join("gigsift-probe-test");
+        let nested = root.join("a").join("b");
+        std::fs::create_dir_all(&nested).unwrap();
+        let mixed = root.join("a/b");
+        let meta = std::fs::metadata(&mixed).unwrap();
+
+        let probe = probe_file(&mixed, &meta);
+
+        std::fs::remove_dir_all(&root).unwrap();
+        assert!(probe.id.is_some());
+    }
 }
