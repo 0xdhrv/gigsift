@@ -9,9 +9,12 @@ use gigsift_recipes::RecipeSet;
 use tempfile::{TempDir, tempdir};
 
 /// macOS temp paths run through a symlink, and explain reports resolved paths.
+/// Windows `canonicalize` adds a `\\?\` prefix that explain strips from its output.
 fn temp_root() -> (TempDir, PathBuf) {
     let dir = tempdir().unwrap();
     let root = fs::canonicalize(dir.path()).unwrap();
+    let text = root.to_string_lossy();
+    let root = PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text));
     (dir, root)
 }
 
