@@ -276,7 +276,7 @@ impl GigsiftServer {
 #[tool_handler(
     name = "gigsift",
     // Must be a literal here. A test keeps it equal to the package version.
-    version = "0.2.1",
+    version = "0.2.2",
     instructions = "Explains local disk usage and proposes cleanups. These tools only \
     read, except create_cleanup_plan, which saves a plan for review. Nothing here can remove \
     anything: to act on a plan, a person runs `gigsift clean apply <plan_id>` themselves. Sizes \
