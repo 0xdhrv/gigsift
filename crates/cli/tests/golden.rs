@@ -461,6 +461,16 @@ fn forcing_color_styles_text_but_never_json() {
 }
 
 #[test]
+fn piped_help_is_the_plain_wordmark_with_no_animation() {
+    let output = gigsift(&["--help"]);
+    let text = String::from_utf8(output.stdout).unwrap();
+
+    assert!(output.status.success());
+    assert!(text.contains("█▀▀█ ▀ █▀▀█ █▀▀▀ ▀ █▀▀▀ █▀▀\n"));
+    assert!(!text.contains('\x1b'), "{text:?}");
+}
+
+#[test]
 fn invalid_sizes_are_rejected() {
     let dir = tempdir().unwrap();
     let root = dir.path().to_str().unwrap();

@@ -1,6 +1,7 @@
 //! Terminal styling. Commands name a role here rather than picking colors, and
-//! every color is a plain ANSI one, so output follows the user's terminal theme
-//! on light and dark backgrounds alike.
+//! every role is a plain ANSI color, so text follows the user's terminal theme on
+//! light and dark backgrounds alike. Only the brand marks go past that: the logo,
+//! size bars and spinner use a truecolor ramp, or the accent where that's missing.
 //!
 //! `anstream` drops the styling for pipes and `NO_COLOR`. Shortened paths and bars
 //! need more care: they only appear on a terminal, so piped text keeps real paths.
@@ -14,7 +15,7 @@ use std::thread::{self, Thread};
 use std::time::{Duration, Instant};
 
 use anstream::{eprint, eprintln, println};
-use anstyle::{AnsiColor, Style};
+use anstyle::{AnsiColor, RgbColor, Style};
 use gigsift_core::size::format_size;
 
 pub const ACCENT: Style = AnsiColor::Cyan.on_default();
@@ -27,21 +28,53 @@ pub const STRONG: Style = Style::new().bold();
 /// Column where a row's details start, under its size.
 pub const DETAIL_INDENT: usize = 13;
 
-pub const WORDMARK: &str = "\x1b[36m                        ▄
-█▀▀█ ▀ █▀▀█ █▀▀▀ ▀ █▀▀▀ █▀▀
-█  █ █ █  █ ▀▀▀█ █ █▀▀  █
-▀▀▀█ ▀ ▀▀▀█ ▀▀▀▀ ▀ ▀    ▀▀▀
-▀▀▀▀   ▀▀▀▀\x1b[0m";
+/// Mid-tones, so the ramp reads on light and dark backgrounds alike.
+const BRAND: [RgbColor; 3] = [
+    RgbColor(0x10, 0xB5, 0xA0),
+    RgbColor(0x12, 0x9C, 0xD8),
+    RgbColor(0x52, 0x74, 0xF0),
+];
 
 const BAR_CELLS: usize = 20;
 const EIGHTHS: [&str; 8] = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
-const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+/// Sand filling a cell and draining out again.
+const SPINNER: [&str; 35] = [
+    "⠁", "⠂", "⠄", "⡀", "⡈", "⡐", "⡠", "⣀", "⣁", "⣂", "⣄", "⣌", "⣔", "⣤", "⣥", "⣦", "⣮", "⣶", "⣷",
+    "⣿", "⡿", "⠿", "⢟", "⠟", "⡛", "⠛", "⠫", "⢋", "⠋", "⠍", "⡉", "⠉", "⠑", "⠡", "⢁",
+];
 
 static RICH: LazyLock<bool> = LazyLock::new(|| io::stdout().is_terminal());
+static TRUECOLOR: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var_os("COLORTERM").is_some_and(|value| value == "truecolor" || value == "24bit")
+});
 
 /// Styles after any padding, because escape codes would count toward the width.
 pub fn paint(style: Style, text: impl Display) -> String {
     format!("{style}{text}{style:#}")
+}
+
+/// A point on the brand ramp, from 0 to 1.
+pub fn brand(at: f32) -> Style {
+    if *TRUECOLOR {
+        ramp(at).on_default()
+    } else {
+        ACCENT
+    }
+}
+
+fn ramp(at: f32) -> RgbColor {
+    let spans = (BRAND.len() - 1) as f32;
+    let position = at.clamp(0.0, 1.0) * spans;
+    let span = (position as usize).min(BRAND.len() - 2);
+    let (from, to) = (BRAND[span], BRAND[span + 1]);
+    let blend = |a: u8, b: u8| {
+        (f32::from(a) + (f32::from(b) - f32::from(a)) * (position - span as f32)) as u8
+    };
+    RgbColor(
+        blend(from.0, to.0),
+        blend(from.1, to.1),
+        blend(from.2, to.2),
+    )
 }
 
 pub fn joined<T: Display>(parts: impl IntoIterator<Item = T>) -> String {
@@ -52,11 +85,20 @@ pub fn joined<T: Display>(parts: impl IntoIterator<Item = T>) -> String {
 pub fn header(command: &str, subject: &str) {
     println!();
     println!(
-        "  {} {}  {subject}",
-        paint(ACCENT, "◆"),
-        paint(STRONG, command)
+        "  {}  {}",
+        paint(badge(), format!(" ◆ {command} ")),
+        leaf(subject)
     );
     println!();
+}
+
+fn badge() -> Style {
+    let (ink, fill) = if *TRUECOLOR {
+        (RgbColor(0x04, 0x18, 0x1C).into(), ramp(0.25).into())
+    } else {
+        (AnsiColor::Black.into(), AnsiColor::Cyan.into())
+    };
+    Style::new().fg_color(Some(ink)).bg_color(Some(fill)).bold()
 }
 
 pub fn heading(title: &str, meta: impl Display) {
@@ -122,6 +164,20 @@ pub fn bar(value: u64, max: u64, style: Style) -> String {
     }
     let (fill, empty) = bar_parts(value, max);
     format!("{}{}  ", paint(style, fill), " ".repeat(empty))
+}
+
+/// A bar that carries no verdict, only size, so it can wear the brand.
+pub fn brand_bar(value: u64, max: u64) -> String {
+    if !*RICH {
+        return String::new();
+    }
+    let (fill, empty) = bar_parts(value, max);
+    let fill: String = fill
+        .chars()
+        .enumerate()
+        .map(|(cell, block)| paint(brand(cell as f32 / (BAR_CELLS - 1) as f32), block))
+        .collect();
+    format!("{fill}{}  ", " ".repeat(empty))
 }
 
 /// A meter also draws the part it has not reached, so the scale is visible.
@@ -222,14 +278,14 @@ fn spin(label: &str, done: &AtomicBool) {
     if done.load(Ordering::Acquire) {
         return;
     }
-    for frame in SPINNER.iter().cycle() {
+    for (index, frame) in SPINNER.iter().enumerate().cycle() {
         if done.load(Ordering::Acquire) {
             break;
         }
         let seconds = started.elapsed().as_secs();
         eprint!(
             "\r  {} {label}  {}",
-            paint(ACCENT, frame),
+            paint(brand(index as f32 / SPINNER.len() as f32), frame),
             paint(MUTED, format!("{seconds}s"))
         );
         thread::park_timeout(Duration::from_millis(80));

@@ -168,7 +168,7 @@ pub fn print_projects(report: &Envelope<ProjectsData>) {
         println!(
             "  {}  {}{}",
             ui::size(project.reclaimable_bytes_estimate),
-            ui::bar(project.reclaimable_bytes_estimate, largest, ACCENT),
+            ui::brand_bar(project.reclaimable_bytes_estimate, largest),
             ui::leaf(&ui::home(&project.root))
         );
         print_project_details(project);
@@ -677,7 +677,7 @@ fn print_entries(entries: &[SizedEntry], root: &str) {
         println!(
             "  {}  {}{}",
             ui::size(entry.allocated_bytes),
-            ui::bar(entry.allocated_bytes, largest, ACCENT),
+            ui::brand_bar(entry.allocated_bytes, largest),
             ui::leaf(&format!("{}{marker}", ui::under(&entry.path, root)))
         );
     }

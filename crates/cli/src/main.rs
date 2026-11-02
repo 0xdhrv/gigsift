@@ -1,4 +1,5 @@
 mod human;
+mod logo;
 mod ui;
 
 use std::io::{self, IsTerminal, Write};
@@ -31,19 +32,21 @@ const DEFAULT_ACTIVE_WITHIN: &str = "14d";
 /// How much of each path `--json` output carries. Set once, from the command line.
 static JSON_SHARING: OnceLock<PathSharing> = OnceLock::new();
 
-const HELP_STYLES: Styles = Styles::styled()
-    .header(ui::ACCENT.bold())
-    .usage(ui::ACCENT.bold())
-    .literal(ui::STRONG)
-    .placeholder(ui::MUTED);
+fn help_styles() -> Styles {
+    Styles::styled()
+        .header(ui::brand(0.25).bold())
+        .usage(ui::brand(0.25).bold())
+        .literal(ui::STRONG)
+        .placeholder(ui::MUTED)
+}
 
 #[derive(Parser)]
 #[command(
     name = "gigsift",
     version,
     about = "Understand every gigabyte.",
-    before_help = ui::WORDMARK,
-    styles = HELP_STYLES
+    before_help = logo::wordmark(),
+    styles = help_styles()
 )]
 struct Cli {
     /// How much of each path --json output shows: full, home, or hidden. Use home
@@ -240,7 +243,7 @@ impl From<ProfileArg> for Profile {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli = Cli::try_parse().unwrap_or_else(|error| exit_with_clap(&error));
     JSON_SHARING.get_or_init(|| cli.share_paths);
     let (name, json) = match &cli.command {
         Command::Scan { json, .. } => ("scan", *json),
@@ -272,6 +275,23 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Help and errors both end up here. Only the top-level help shows the logo.
+fn exit_with_clap(error: &clap::Error) -> ! {
+    if error
+        .render()
+        .ansi()
+        .to_string()
+        .starts_with(&logo::wordmark())
+    {
+        if error.use_stderr() {
+            logo::sift(io::stderr());
+        } else {
+            logo::sift(io::stdout());
+        }
+    }
+    error.exit()
 }
 
 fn run(command: Command) -> Result<ExitCode> {
