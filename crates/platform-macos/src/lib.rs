@@ -4,6 +4,9 @@
 
 #![cfg(unix)]
 
+#[cfg(target_os = "macos")]
+mod bulk;
+
 use std::ffi::CString;
 use std::fs::Metadata;
 use std::mem;
@@ -13,6 +16,9 @@ use std::path::{Path, PathBuf};
 
 use gigsift_core::probe::{FileId, FileProbe};
 use gigsift_core::{RecycleError, VolumeSpace};
+
+#[cfg(target_os = "macos")]
+pub use bulk::{BulkKind, read_directory};
 
 /// Skipped when scanning from `/`: other volumes, plus the view of the data
 /// volume that firmlinks already expose at `/Users` and friends.
