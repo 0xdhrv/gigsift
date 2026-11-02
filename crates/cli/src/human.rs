@@ -3,9 +3,9 @@
 use gigsift_core::size::format_size;
 use gigsift_core::{
     ActionStatus, ApplyData, ApplyOutcome, BlockReason, Candidate, CandidatesData, ChangeKind,
-    CompletenessStatus, EntryKind, Envelope, ExplainData, GitStatus, HistoryData, NetworkCost,
-    PathKind, PlanData, ProjectsData, RebuildTime, Risk, SafetyVerdict, ScanData, SizedEntry,
-    TopData,
+    ChangesData, CompletenessStatus, EntryKind, Envelope, ExplainData, ForecastData, GitStatus,
+    HistoryData, NetworkCost, Outlook, PathKind, PlanData, ProjectsData, RebuildTime, Risk,
+    SafetyVerdict, ScanData, SizedEntry, SnapshotData, TopData,
 };
 
 pub fn print_scan(report: &Envelope<ScanData>) {
@@ -244,6 +244,76 @@ pub fn print_apply(report: &Envelope<ApplyData>) {
         );
     }
     print_trust(report);
+}
+
+pub fn print_snapshot(report: &Envelope<SnapshotData>) {
+    let data = &report.data;
+    println!(
+        "Recorded {} at {} on disk, with {} folders.",
+        data.root,
+        format_size(data.allocated_bytes),
+        data.directories_recorded
+    );
+    print_trust(report);
+}
+
+pub fn print_changes(report: &Envelope<ChangesData>) {
+    let data = &report.data;
+    if let (Some(baseline), Some(delta)) = (&data.baseline, data.allocated_delta_bytes) {
+        println!(
+            "{} since {}: {}",
+            data.root,
+            baseline.taken_at.strftime("%Y-%m-%d %H:%M"),
+            signed_size(delta)
+        );
+    }
+    for change in &data.changes {
+        let about = if change.approximate { "~" } else { " " };
+        println!(
+            "  {about}{:>10}  {}",
+            signed_size(change.delta_bytes),
+            change.path
+        );
+    }
+    if data.truncated > 0 {
+        println!("...and {} more. Raise --limit.", data.truncated);
+    }
+    print_trust(report);
+}
+
+fn signed_size(delta: i64) -> String {
+    let sign = if delta < 0 { "-" } else { "+" };
+    format!("{sign}{}", format_size(delta.unsigned_abs()))
+}
+
+pub fn print_forecast(data: &ForecastData) {
+    println!(
+        "{} free of {}",
+        format_size(data.volume.available_bytes),
+        format_size(data.volume.total_bytes)
+    );
+    match data.outlook {
+        Outlook::InsufficientData => println!(
+            "Not enough history yet: {} snapshots over {:.1} days. Run `gigsift snapshot` \
+             regularly, and forecasts start after three spanning a day.",
+            data.samples, data.span_days
+        ),
+        Outlook::NotFilling => println!(
+            "Free space isn't shrinking, across {} snapshots over {:.0} days.",
+            data.samples, data.span_days
+        ),
+        Outlook::Filling => {
+            let used = data.bytes_used_per_day.unwrap_or(0.0).max(0.0) as u64;
+            println!("Using about {} a day.", format_size(used));
+            let low = data.days_until_full_low.unwrap_or(0.0);
+            let best = data.days_until_full.unwrap_or(0.0);
+            let range = data.days_until_full_high.map_or_else(
+                || format!("{low:.0} days or later, and it may not fill at all"),
+                |high| format!("{low:.0} to {high:.0} days"),
+            );
+            println!("Full in about {best:.0} days. Likely range: {range}.");
+        }
+    }
 }
 
 pub fn print_history(data: &HistoryData) {

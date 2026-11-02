@@ -1,0 +1,315 @@
+{
+  "$defs": {
+    "Baseline": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "description": "False when the baseline scan couldn't read everything.",
+          "type": "boolean"
+        },
+        "newer_than_requested": {
+          "description": "True when no snapshot is as old as asked, so this covers a shorter period.",
+          "type": "boolean"
+        },
+        "snapshot_id": {
+          "type": "string"
+        },
+        "taken_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "taken_at",
+        "complete",
+        "newer_than_requested"
+      ],
+      "type": "object"
+    },
+    "ChangesData": {
+      "additionalProperties": false,
+      "description": "`data` for `gigsift changes`.",
+      "properties": {
+        "allocated_delta_bytes": {
+          "description": "Positive means the tree grew. Absent without a baseline.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "baseline": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Baseline"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The snapshot compared against. Absent when none exists for this folder."
+        },
+        "changes": {
+          "description": "Largest first, each attributed to the deepest folder that explains it.",
+          "items": {
+            "$ref": "#/$defs/PathChange"
+          },
+          "type": "array"
+        },
+        "root": {
+          "type": "string"
+        },
+        "since_seconds": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "truncated": {
+          "description": "Changes that fell past the limit.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "root",
+        "since_seconds",
+        "changes",
+        "truncated"
+      ],
+      "type": "object"
+    },
+    "CompletenessStatus": {
+      "oneOf": [
+        {
+          "const": "complete",
+          "description": "Every entry under the root was visited.",
+          "type": "string"
+        },
+        {
+          "const": "partial",
+          "description": "Something could not be read, so totals are a lower bound.",
+          "type": "string"
+        }
+      ]
+    },
+    "InaccessiblePath": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "description": "OS error text, for humans. Not stable across platforms or locales.",
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/InaccessibleReason"
+        }
+      },
+      "required": [
+        "path",
+        "reason",
+        "detail"
+      ],
+      "type": "object"
+    },
+    "InaccessibleReason": {
+      "enum": [
+        "permission_denied",
+        "not_found",
+        "path_too_long",
+        "other"
+      ],
+      "type": "string"
+    },
+    "PathChange": {
+      "additionalProperties": false,
+      "properties": {
+        "approximate": {
+          "description": "True when one side is unknown, so the delta could be off by up to the floor.",
+          "type": "boolean"
+        },
+        "current_bytes": {
+          "description": "Absent when the folder is gone or now below the recorded floor.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "delta_bytes": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "path": {
+          "type": "string"
+        },
+        "previous_bytes": {
+          "description": "Absent when the folder wasn't recorded, because it was missing or small.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "delta_bytes",
+        "approximate"
+      ],
+      "type": "object"
+    },
+    "ScanCompleteness": {
+      "additionalProperties": false,
+      "properties": {
+        "directories_unreadable": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "directories_visited": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "entries_unreadable": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "mount_points_skipped": {
+          "description": "Directories on another volume, left out of totals. Not a failure.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/$defs/CompletenessStatus"
+        }
+      },
+      "required": [
+        "status",
+        "directories_visited",
+        "directories_unreadable",
+        "entries_unreadable",
+        "mount_points_skipped"
+      ],
+      "type": "object"
+    },
+    "Warning": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/WarningCode"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "WarningCode": {
+      "oneOf": [
+        {
+          "const": "incomplete_scan",
+          "description": "Totals are a lower bound because some paths could not be read.",
+          "type": "string"
+        },
+        {
+          "const": "full_disk_access_missing",
+          "description": "macOS privacy protection blocked paths; Full Disk Access would reveal them.",
+          "type": "string"
+        },
+        {
+          "const": "changed_during_scan",
+          "description": "Files changed or vanished while being scanned.",
+          "type": "string"
+        },
+        {
+          "const": "non_unicode_paths",
+          "description": "Some paths are not valid Unicode and are shown lossily.",
+          "type": "string"
+        },
+        {
+          "const": "cloud_placeholders",
+          "description": "Files whose content lives in the cloud take little or no local space.",
+          "type": "string"
+        },
+        {
+          "const": "diverged_clones",
+          "description": "Files modified since cloning still share blocks that cannot be attributed,\nso allocated bytes may overcount.",
+          "type": "string"
+        },
+        {
+          "const": "no_baseline",
+          "description": "No snapshot of this folder exists, so there is nothing to compare with.",
+          "type": "string"
+        },
+        {
+          "const": "baseline_too_recent",
+          "description": "The oldest snapshot is newer than the period asked about.",
+          "type": "string"
+        },
+        {
+          "const": "incomplete_baseline",
+          "description": "The snapshot being compared with was itself a partial scan.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Fields every top-level response carries, wrapped around command-specific data.\n\nTotals are never reported without these: a number with no completeness or\nfreshness attached is not honest about what it covers.",
+  "properties": {
+    "command": {
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/ChangesData"
+    },
+    "inaccessible_paths": {
+      "items": {
+        "$ref": "#/$defs/InaccessiblePath"
+      },
+      "type": "array"
+    },
+    "scan_completeness": {
+      "$ref": "#/$defs/ScanCompleteness"
+    },
+    "scanned_at": {
+      "description": "When the scan behind this response finished.",
+      "type": "string"
+    },
+    "schema_version": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "warnings": {
+      "items": {
+        "$ref": "#/$defs/Warning"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command",
+    "scanned_at",
+    "scan_completeness",
+    "inaccessible_paths",
+    "warnings",
+    "data"
+  ],
+  "title": "Envelope",
+  "type": "object"
+}

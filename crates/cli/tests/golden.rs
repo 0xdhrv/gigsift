@@ -306,6 +306,64 @@ fn history_json_matches_its_schema_when_empty() {
     assert!(validator("history").is_valid(&value));
 }
 
+#[test]
+fn changes_without_a_snapshot_says_so() {
+    let dir = fixture();
+    let root = resolved_root(&dir);
+    let data = tempdir().unwrap();
+
+    let output = gigsift_with_data(data.path(), &["changes", root.to_str().unwrap(), "--json"]);
+
+    assert!(output.status.success(), "{output:?}");
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(validator("changes").is_valid(&value));
+    assert_eq!(value["data"]["baseline"], Value::Null);
+    assert_eq!(value["warnings"][0]["code"], "no_baseline");
+}
+
+#[test]
+fn a_snapshot_becomes_the_baseline_for_changes() {
+    let dir = fixture();
+    let root = resolved_root(&dir);
+    let data = tempdir().unwrap();
+    let text = root.to_str().unwrap();
+
+    let taken = gigsift_with_data(data.path(), &["snapshot", text, "--json"]);
+    assert!(taken.status.success(), "{taken:?}");
+    let taken: Value = serde_json::from_slice(&taken.stdout).unwrap();
+    assert!(validator("snapshot").is_valid(&taken));
+
+    fs::write(root.join("media/new.mov"), vec![b'x'; 1_000_000]).unwrap();
+
+    let output = gigsift_with_data(data.path(), &["changes", text, "--since", "1d", "--json"]);
+    assert!(output.status.success(), "{output:?}");
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(validator("changes").is_valid(&value));
+    assert_eq!(
+        value["data"]["baseline"]["snapshot_id"],
+        taken["data"]["snapshot_id"]
+    );
+    assert_eq!(value["data"]["baseline"]["newer_than_requested"], true);
+    assert_eq!(value["warnings"][0]["code"], "baseline_too_recent");
+    assert!(value["data"]["allocated_delta_bytes"].as_i64().unwrap() >= 1_000_000);
+}
+
+#[test]
+fn a_forecast_needs_history_and_says_so() {
+    let dir = fixture();
+    let root = resolved_root(&dir);
+    let data = tempdir().unwrap();
+
+    let output = gigsift_with_data(data.path(), &["forecast", root.to_str().unwrap(), "--json"]);
+
+    assert!(output.status.success(), "{output:?}");
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(validator("forecast").is_valid(&value));
+    assert_eq!(value["data"]["outlook"], "insufficient_data");
+    assert!(value["data"]["volume"]["total_bytes"].as_u64().unwrap() > 0);
+    assert!(value["data"]["volume"]["available_bytes"].as_u64().unwrap() > 0);
+}
+
 /// Moves a fixture to the real Trash, so only CI runners opt in.
 #[test]
 fn a_full_run_moves_to_the_real_trash_and_records_it() {

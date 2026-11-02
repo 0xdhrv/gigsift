@@ -8,12 +8,14 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use serde_json::{Value, json};
 use tempfile::{TempDir, tempdir};
 
-const TOOLS: [&str; 6] = [
+const TOOLS: [&str; 8] = [
     "create_cleanup_plan",
     "explain_storage_path",
     "find_cleanup_candidates",
     "find_large_files",
     "get_project_storage",
+    "get_storage_changes",
+    "get_storage_forecast",
     "get_storage_summary",
 ];
 
@@ -322,6 +324,44 @@ fn a_bad_call_is_a_tool_error_and_the_server_keeps_going() {
     assert_eq!(bad_size["isError"], json!(true), "{bad_size}");
 
     assert_eq!(tool_names(&mut client).len(), TOOLS.len());
+}
+
+#[test]
+fn changes_explain_how_to_start_when_there_is_no_snapshot() {
+    let fixture = fixture();
+    let mut client = Client::start(&fixture, &[]);
+
+    let report = client.call_ok("get_storage_changes", json!({}));
+
+    assert_eq!(report["data"]["baseline"], Value::Null);
+    assert_eq!(report["warnings"][0]["code"], "no_baseline");
+}
+
+#[test]
+fn changes_compare_with_a_snapshot_taken_by_the_cli() {
+    let fixture = fixture();
+    let root = fixture.home.to_string_lossy().into_owned();
+    let taken = gigsift(&fixture, &["snapshot", &root, "--json"]);
+    assert!(taken.status.success(), "{taken:?}");
+    fs::write(fixture.home.join("grew.bin"), vec![b'x'; 1_000_000]).unwrap();
+
+    let mut client = Client::start(&fixture, &[]);
+    let report = client.call_ok(
+        "get_storage_changes",
+        json!({ "path": root, "since": "1d" }),
+    );
+
+    assert!(report["data"]["allocated_delta_bytes"].as_i64().unwrap() >= 1_000_000);
+}
+
+#[test]
+fn a_forecast_says_when_it_has_too_little_history() {
+    let fixture = fixture();
+    let mut client = Client::start(&fixture, &[]);
+
+    let report = client.call_ok("get_storage_forecast", json!({}));
+
+    assert_eq!(report["data"]["outlook"], "insufficient_data");
 }
 
 #[test]

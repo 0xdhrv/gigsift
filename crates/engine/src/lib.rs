@@ -4,8 +4,10 @@
 pub mod activity;
 pub mod analysis;
 mod apply;
+mod changes;
 mod discover;
 mod explain;
+mod forecast;
 pub mod git;
 mod plan;
 mod projects;
@@ -16,7 +18,11 @@ use std::path::{Path, PathBuf};
 
 pub use analysis::{Analyzer, ProjectContext};
 pub use apply::{ApplyError, apply_plan};
+pub use changes::{
+    SNAPSHOT_MIN_DIRECTORY_BYTES, attribute, compare_with_snapshot, snapshot_key, take_snapshot,
+};
 pub use explain::explain;
+pub use forecast::forecast;
 pub use plan::{create_plan, find_candidates};
 pub use projects::find_projects;
 pub use storage::{largest_entries, storage_summary};

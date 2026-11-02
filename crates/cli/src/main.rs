@@ -10,16 +10,18 @@ use clap::{Parser, Subcommand, ValueEnum};
 use gigsift_core::age::parse_age;
 use gigsift_core::size::parse_size;
 use gigsift_core::{
-    Envelope, ErrorBody, ErrorCode, ErrorResponse, HistoryData, HistoryResponse, PathSharing,
-    PlanData, Profile, SCHEMA_VERSION, redact,
+    Envelope, ErrorBody, ErrorCode, ErrorResponse, ForecastResponse, HistoryData, HistoryResponse,
+    PathSharing, PlanData, Profile, SCHEMA_VERSION, redact,
 };
 use gigsift_engine::{
-    Analyzer, ApplyError, apply_plan, create_plan, explain, find_candidates, find_projects,
-    largest_entries, storage_summary,
+    Analyzer, ApplyError, SNAPSHOT_MIN_DIRECTORY_BYTES, apply_plan, compare_with_snapshot,
+    create_plan, explain, find_candidates, find_projects, forecast, largest_entries, snapshot_key,
+    storage_summary, take_snapshot,
 };
 use gigsift_recipes::RecipeSet;
-use gigsift_scanner::NativeRecycler;
+use gigsift_scanner::{NativeRecycler, volume_space};
 use gigsift_store::{Store, StoreError};
+use jiff::{SignedDuration, Timestamp};
 use serde::Serialize;
 
 const DEFAULT_ACTIVE_WITHIN: &str = "14d";
@@ -95,6 +97,36 @@ enum Command {
     Clean {
         #[command(subcommand)]
         command: CleanCommand,
+    },
+    /// Record a folder's sizes now, so later runs can compare with it.
+    Snapshot {
+        /// Directory to record. Defaults to your home directory.
+        path: Option<PathBuf>,
+        /// Print the versioned JSON contract instead of text.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show what grew and shrank since an earlier snapshot. Read-only.
+    Changes {
+        /// Directory to compare. Defaults to your home directory.
+        path: Option<PathBuf>,
+        /// How far back to compare, like 7d or 2w.
+        #[arg(long, default_value = "7d", value_parser = parse_age)]
+        since: u64,
+        /// Show at most this many changes.
+        #[arg(long, default_value_t = 30)]
+        limit: usize,
+        /// Print the versioned JSON contract instead of text.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Estimate when a disk fills, from recorded snapshots. Read-only.
+    Forecast {
+        /// Any path on the disk to forecast. Defaults to your home directory.
+        path: Option<PathBuf>,
+        /// Print the versioned JSON contract instead of text.
+        #[arg(long)]
+        json: bool,
     },
     /// Run the local MCP server.
     Mcp {
@@ -214,6 +246,9 @@ fn main() -> ExitCode {
             command: CleanCommand::Apply { json, .. },
         } => ("clean apply", *json),
         Command::History { json, .. } => ("history", *json),
+        Command::Snapshot { json, .. } => ("snapshot", *json),
+        Command::Changes { json, .. } => ("changes", *json),
+        Command::Forecast { json, .. } => ("forecast", *json),
         Command::Mcp { .. } => ("mcp serve", false),
     };
     match run(cli.command) {
@@ -264,6 +299,14 @@ fn run(command: Command) -> Result<ExitCode> {
             }
         },
         Command::History { limit, json } => run_history(limit, json),
+        Command::Snapshot { path, json } => run_snapshot(path, json),
+        Command::Changes {
+            path,
+            since,
+            limit,
+            json,
+        } => run_changes(path, since, limit, json),
+        Command::Forecast { path, json } => run_forecast(path, json),
         Command::Mcp {
             command: McpCommand::Serve { sharing },
         } => gigsift_mcp::serve(sharing).map_err(|error| anyhow::anyhow!("{error}")),
@@ -403,6 +446,48 @@ fn confirmed(plan: &Envelope<PlanData>) -> Result<bool> {
     let mut answer = String::new();
     io::stdin().read_line(&mut answer)?;
     Ok(matches!(answer.trim().to_lowercase().as_str(), "y" | "yes"))
+}
+
+fn run_snapshot(path: Option<PathBuf>, json: bool) -> Result<()> {
+    let root = resolve_root(path)?;
+    let (snapshot, envelope) = take_snapshot(&root, SNAPSHOT_MIN_DIRECTORY_BYTES)?;
+    Store::for_user()?.save_snapshot(&snapshot)?;
+    if json {
+        print_json(&envelope)
+    } else {
+        human::print_snapshot(&envelope);
+        Ok(())
+    }
+}
+
+fn run_changes(path: Option<PathBuf>, since: u64, limit: usize, json: bool) -> Result<()> {
+    let root = resolve_root(path)?;
+    let wanted = Timestamp::now() - SignedDuration::from_secs(since as i64);
+    let baseline = Store::for_user()?.baseline_for(&snapshot_key(&root), wanted)?;
+    let envelope = compare_with_snapshot(&root, baseline.as_ref(), since, limit)?;
+    if json {
+        print_json(&envelope)
+    } else {
+        human::print_changes(&envelope);
+        Ok(())
+    }
+}
+
+fn run_forecast(path: Option<PathBuf>, json: bool) -> Result<()> {
+    let root = resolve_root(path)?;
+    let volume = volume_space(&root).context("could not read that disk's free space")?;
+    let samples = Store::for_user()?.space_samples(volume.volume)?;
+    let response = ForecastResponse {
+        schema_version: SCHEMA_VERSION,
+        command: "forecast".to_owned(),
+        data: forecast(volume, &samples),
+    };
+    if json {
+        print_json(&response)
+    } else {
+        human::print_forecast(&response.data);
+        Ok(())
+    }
 }
 
 fn run_history(limit: u32, json: bool) -> Result<()> {

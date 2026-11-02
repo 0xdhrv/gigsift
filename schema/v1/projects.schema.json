@@ -347,6 +347,21 @@
           "const": "diverged_clones",
           "description": "Files modified since cloning still share blocks that cannot be attributed,\nso allocated bytes may overcount.",
           "type": "string"
+        },
+        {
+          "const": "no_baseline",
+          "description": "No snapshot of this folder exists, so there is nothing to compare with.",
+          "type": "string"
+        },
+        {
+          "const": "baseline_too_recent",
+          "description": "The oldest snapshot is newer than the period asked about.",
+          "type": "string"
+        },
+        {
+          "const": "incomplete_baseline",
+          "description": "The snapshot being compared with was itself a partial scan.",
+          "type": "string"
         }
       ]
     }

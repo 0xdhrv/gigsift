@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use gigsift_core::{
-    ActionStart, ActionStatus, ApplyResult, AuditError, AuditLog, Envelope, HistoryEntry, PlanData,
+    ActionStart, ActionStatus, ApplyResult, AuditError, AuditLog, DirectorySize, Envelope,
+    HistoryEntry, PlanData, Snapshot, SpaceSample, VolumeSpace,
 };
 use jiff::Timestamp;
 use rusqlite::{Connection, ErrorCode, OptionalExtension, params};
@@ -34,7 +35,31 @@ const SCHEMA: &str = "
         error          TEXT
     );
     CREATE INDEX IF NOT EXISTS actions_by_time ON actions (started_at DESC);
+    CREATE TABLE IF NOT EXISTS snapshots (
+        snapshot_id         TEXT PRIMARY KEY,
+        root                TEXT NOT NULL,
+        taken_second        INTEGER NOT NULL,
+        complete            INTEGER NOT NULL,
+        allocated_bytes     INTEGER NOT NULL,
+        logical_bytes       INTEGER NOT NULL,
+        files               INTEGER NOT NULL,
+        volume              INTEGER,
+        total_bytes         INTEGER,
+        available_bytes     INTEGER,
+        min_directory_bytes INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS snapshots_by_root ON snapshots (root, taken_second);
+    CREATE INDEX IF NOT EXISTS snapshots_by_volume ON snapshots (volume, taken_second);
+    CREATE TABLE IF NOT EXISTS snapshot_directories (
+        snapshot_id     TEXT NOT NULL,
+        path            TEXT NOT NULL,
+        allocated_bytes INTEGER NOT NULL,
+        PRIMARY KEY (snapshot_id, path)
+    ) WITHOUT ROWID;
 ";
+
+/// Folder detail older than this is dropped. Totals stay, so forecasts keep their history.
+const DIRECTORY_RETENTION_SECONDS: i64 = 400 * 86_400;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -108,6 +133,109 @@ impl Store {
         serde_json::from_str(&body).map_err(corrupt)
     }
 
+    pub fn save_snapshot(&self, snapshot: &Snapshot) -> Result<(), StoreError> {
+        let transaction = self.connection.unchecked_transaction()?;
+        let volume = snapshot.volume;
+        transaction.execute(
+            "INSERT INTO snapshots
+                (snapshot_id, root, taken_second, complete, allocated_bytes, logical_bytes, files,
+                 volume, total_bytes, available_bytes, min_directory_bytes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                snapshot.snapshot_id,
+                snapshot.root,
+                snapshot.taken_at.as_second(),
+                snapshot.complete,
+                snapshot.allocated_bytes as i64,
+                snapshot.logical_bytes as i64,
+                snapshot.files as i64,
+                volume.map(|v| v.volume as i64),
+                volume.map(|v| v.total_bytes as i64),
+                volume.map(|v| v.available_bytes as i64),
+                snapshot.min_directory_bytes as i64,
+            ],
+        )?;
+        {
+            let mut insert = transaction.prepare(
+                "INSERT INTO snapshot_directories (snapshot_id, path, allocated_bytes)
+                 VALUES (?1, ?2, ?3)",
+            )?;
+            for directory in &snapshot.directories {
+                insert.execute(params![
+                    snapshot.snapshot_id,
+                    directory.path,
+                    directory.allocated_bytes as i64,
+                ])?;
+            }
+        }
+        transaction.execute(
+            "DELETE FROM snapshot_directories WHERE snapshot_id IN
+                (SELECT snapshot_id FROM snapshots WHERE taken_second < ?1)",
+            params![snapshot.taken_at.as_second() - DIRECTORY_RETENTION_SECONDS],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// The newest snapshot of `root` taken by `at`. If none is that old, the oldest
+    /// there is, which covers less time but is still the best comparison available.
+    pub fn baseline_for(&self, root: &str, at: Timestamp) -> Result<Option<Snapshot>, StoreError> {
+        let before = format!(
+            "SELECT {SNAPSHOT_COLUMNS} FROM snapshots
+             WHERE root = ?1 AND taken_second <= ?2 ORDER BY taken_second DESC LIMIT 1"
+        );
+        let oldest = format!(
+            "SELECT {SNAPSHOT_COLUMNS} FROM snapshots
+             WHERE root = ?1 ORDER BY taken_second ASC LIMIT 1"
+        );
+        let found = self
+            .connection
+            .query_row(&before, params![root, at.as_second()], read_snapshot)
+            .optional()?;
+        let found = match found {
+            Some(snapshot) => Some(snapshot),
+            None => self
+                .connection
+                .query_row(&oldest, params![root], read_snapshot)
+                .optional()?,
+        };
+        found
+            .map(|mut snapshot| {
+                snapshot.directories = self.snapshot_directories(&snapshot.snapshot_id)?;
+                Ok(snapshot)
+            })
+            .transpose()
+    }
+
+    fn snapshot_directories(&self, snapshot_id: &str) -> Result<Vec<DirectorySize>, StoreError> {
+        let mut query = self.connection.prepare(
+            "SELECT path, allocated_bytes FROM snapshot_directories WHERE snapshot_id = ?1",
+        )?;
+        let rows = query.query_map(params![snapshot_id], |row| {
+            Ok(DirectorySize {
+                path: row.get(0)?,
+                allocated_bytes: row.get::<_, i64>(1)? as u64,
+            })
+        })?;
+        rows.map(|row| row.map_err(StoreError::from)).collect()
+    }
+
+    /// Every recorded free-space reading for a volume, across all snapshot roots.
+    pub fn space_samples(&self, volume: u64) -> Result<Vec<SpaceSample>, StoreError> {
+        let mut query = self.connection.prepare(
+            "SELECT taken_second, available_bytes FROM snapshots
+             WHERE volume = ?1 AND available_bytes IS NOT NULL ORDER BY taken_second",
+        )?;
+        let rows = query.query_map(params![volume as i64], |row| {
+            let taken: i64 = row.get(0)?;
+            Ok(SpaceSample {
+                taken_at: Timestamp::from_second(taken).unwrap_or(Timestamp::UNIX_EPOCH),
+                available_bytes: row.get::<_, i64>(1)? as u64,
+            })
+        })?;
+        rows.map(|row| row.map_err(StoreError::from)).collect()
+    }
+
     /// The newest actions, starting with the most recent.
     pub fn history(&self, limit: u32) -> Result<Vec<HistoryEntry>, StoreError> {
         let mut query = self.connection.prepare(
@@ -119,6 +247,36 @@ impl Store {
         rows.map(|row| row.map_err(StoreError::from)?.into_entry())
             .collect()
     }
+}
+
+/// Reads the columns shared by every snapshot query, in `SNAPSHOT_COLUMNS` order.
+const SNAPSHOT_COLUMNS: &str = "snapshot_id, root, taken_second, complete, allocated_bytes, \
+     logical_bytes, files, volume, total_bytes, available_bytes, min_directory_bytes";
+
+fn read_snapshot(row: &rusqlite::Row) -> rusqlite::Result<Snapshot> {
+    let volume: Option<i64> = row.get(7)?;
+    let total: Option<i64> = row.get(8)?;
+    let available: Option<i64> = row.get(9)?;
+    let taken: i64 = row.get(2)?;
+    Ok(Snapshot {
+        snapshot_id: row.get(0)?,
+        root: row.get(1)?,
+        taken_at: Timestamp::from_second(taken).unwrap_or(Timestamp::UNIX_EPOCH),
+        complete: row.get(3)?,
+        allocated_bytes: row.get::<_, i64>(4)? as u64,
+        logical_bytes: row.get::<_, i64>(5)? as u64,
+        files: row.get::<_, i64>(6)? as u64,
+        volume: match (volume, total, available) {
+            (Some(volume), Some(total), Some(available)) => Some(VolumeSpace {
+                volume: volume as u64,
+                total_bytes: total as u64,
+                available_bytes: available as u64,
+            }),
+            _ => None,
+        },
+        min_directory_bytes: row.get::<_, i64>(10)? as u64,
+        directories: Vec::new(),
+    })
 }
 
 struct Row {
@@ -318,6 +476,113 @@ mod tests {
             trash_location: Some("/trash/node_modules".to_owned()),
             error: None,
         }
+    }
+
+    fn snapshot(id: &str, day: i64, root: &str, available: u64) -> Snapshot {
+        Snapshot {
+            snapshot_id: id.to_owned(),
+            root: root.to_owned(),
+            taken_at: Timestamp::from_second(day * 86_400).unwrap(),
+            complete: true,
+            allocated_bytes: 500,
+            logical_bytes: 600,
+            files: 7,
+            volume: Some(VolumeSpace {
+                volume: u64::MAX - 1,
+                total_bytes: 1000,
+                available_bytes: available,
+            }),
+            min_directory_bytes: 10,
+            directories: vec![DirectorySize {
+                path: format!("{root}/app"),
+                allocated_bytes: 300,
+            }],
+        }
+    }
+
+    fn day(day: i64) -> Timestamp {
+        Timestamp::from_second(day * 86_400).unwrap()
+    }
+
+    #[test]
+    fn snapshots_round_trip_with_their_folders() {
+        let (_dir, store) = store();
+        let saved = snapshot("snap_1", 10, "/code", 400);
+        store.save_snapshot(&saved).unwrap();
+
+        assert_eq!(store.baseline_for("/code", day(10)).unwrap(), Some(saved));
+    }
+
+    #[test]
+    fn the_baseline_is_the_newest_snapshot_old_enough() {
+        let (_dir, store) = store();
+        for (id, at) in [("snap_a", 10), ("snap_b", 20), ("snap_c", 30)] {
+            store
+                .save_snapshot(&snapshot(id, at, "/code", 400))
+                .unwrap();
+        }
+
+        let found = store.baseline_for("/code", day(25)).unwrap().unwrap();
+
+        assert_eq!(found.snapshot_id, "snap_b");
+    }
+
+    #[test]
+    fn without_one_old_enough_the_oldest_is_used() {
+        let (_dir, store) = store();
+        for (id, at) in [("snap_a", 10), ("snap_b", 20)] {
+            store
+                .save_snapshot(&snapshot(id, at, "/code", 400))
+                .unwrap();
+        }
+
+        let found = store.baseline_for("/code", day(1)).unwrap().unwrap();
+
+        assert_eq!(found.snapshot_id, "snap_a");
+    }
+
+    #[test]
+    fn baselines_are_per_folder() {
+        let (_dir, store) = store();
+        store
+            .save_snapshot(&snapshot("snap_a", 10, "/other", 400))
+            .unwrap();
+
+        assert_eq!(store.baseline_for("/code", day(20)).unwrap(), None);
+    }
+
+    #[test]
+    fn space_samples_span_every_root_on_a_volume() {
+        let (_dir, store) = store();
+        store
+            .save_snapshot(&snapshot("snap_a", 10, "/one", 400))
+            .unwrap();
+        store
+            .save_snapshot(&snapshot("snap_b", 20, "/two", 300))
+            .unwrap();
+
+        let samples = store.space_samples(u64::MAX - 1).unwrap();
+
+        assert_eq!(samples.len(), 2);
+        assert_eq!(samples[1].available_bytes, 300);
+        assert!(store.space_samples(5).unwrap().is_empty());
+    }
+
+    #[test]
+    fn old_folder_detail_is_dropped_but_totals_stay() {
+        let (_dir, store) = store();
+        store
+            .save_snapshot(&snapshot("snap_a", 1, "/code", 400))
+            .unwrap();
+        store
+            .save_snapshot(&snapshot("snap_b", 1000, "/code", 300))
+            .unwrap();
+
+        let old = store.baseline_for("/code", day(1)).unwrap().unwrap();
+
+        assert!(old.directories.is_empty());
+        assert_eq!(old.allocated_bytes, 500);
+        assert_eq!(store.space_samples(u64::MAX - 1).unwrap().len(), 2);
     }
 
     #[test]

@@ -13,6 +13,7 @@ pub mod redact;
 pub mod report;
 pub mod safety;
 pub mod size;
+pub mod trends;
 
 pub use apply::*;
 pub use candidate::*;
@@ -20,6 +21,7 @@ pub use plan::*;
 pub use redact::{PathSharing, redact};
 pub use report::*;
 pub use safety::{ProtectedReason, protected_reason};
+pub use trends::*;
 
 /// Version of the JSON contract. Emitted as `schema_version` on every response.
 pub const SCHEMA_VERSION: u32 = 1;

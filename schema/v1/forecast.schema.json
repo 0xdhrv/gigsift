@@ -1,0 +1,134 @@
+{
+  "$defs": {
+    "ForecastData": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes_used_per_day": {
+          "description": "Positive means free space is shrinking. Absent with too little history.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "days_until_full": {
+          "description": "Best estimate. Set only when `outlook` is `filling`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "days_until_full_high": {
+          "description": "Latest plausible, at 80% confidence. Absent when the trend is so noisy\nthat the disk might not fill at all.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "days_until_full_low": {
+          "description": "Earliest plausible, at 80% confidence.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "outlook": {
+          "$ref": "#/$defs/Outlook"
+        },
+        "samples": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "span_days": {
+          "format": "double",
+          "type": "number"
+        },
+        "volume": {
+          "$ref": "#/$defs/VolumeSpace"
+        }
+      },
+      "required": [
+        "volume",
+        "samples",
+        "span_days",
+        "outlook"
+      ],
+      "type": "object"
+    },
+    "Outlook": {
+      "oneOf": [
+        {
+          "enum": [
+            "filling"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "insufficient_data",
+          "description": "Too few snapshots, or too short a period, to say anything.",
+          "type": "string"
+        },
+        {
+          "const": "not_filling",
+          "description": "Free space is holding steady or growing.",
+          "type": "string"
+        }
+      ]
+    },
+    "VolumeSpace": {
+      "additionalProperties": false,
+      "description": "A volume's capacity at one moment.",
+      "properties": {
+        "available_bytes": {
+          "description": "Space available to the user. Purgeable space on APFS is not counted.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "volume": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "volume",
+        "total_bytes",
+        "available_bytes"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "`gigsift forecast`. A forecast reads recorded history rather than scanning, so\nlike history it carries no scan metadata.",
+  "properties": {
+    "command": {
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/ForecastData"
+    },
+    "schema_version": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command",
+    "data"
+  ],
+  "title": "ForecastResponse",
+  "type": "object"
+}

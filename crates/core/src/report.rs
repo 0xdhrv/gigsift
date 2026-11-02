@@ -106,6 +106,12 @@ pub enum WarningCode {
     /// Files modified since cloning still share blocks that cannot be attributed,
     /// so allocated bytes may overcount.
     DivergedClones,
+    /// No snapshot of this folder exists, so there is nothing to compare with.
+    NoBaseline,
+    /// The oldest snapshot is newer than the period asked about.
+    BaselineTooRecent,
+    /// The snapshot being compared with was itself a partial scan.
+    IncompleteBaseline,
 }
 
 /// Byte and entry totals for a tree.

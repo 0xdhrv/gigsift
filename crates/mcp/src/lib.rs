@@ -9,13 +9,15 @@ use std::path::PathBuf;
 
 use gigsift_core::age::parse_age;
 use gigsift_core::size::parse_size;
-use gigsift_core::{PathSharing, Profile, redact};
+use gigsift_core::{ForecastResponse, PathSharing, Profile, SCHEMA_VERSION, redact};
 use gigsift_engine::{
-    Analyzer, create_plan, explain, find_candidates, find_projects, largest_entries,
-    storage_summary,
+    Analyzer, compare_with_snapshot, create_plan, explain, find_candidates, find_projects,
+    forecast, largest_entries, snapshot_key, storage_summary,
 };
 use gigsift_recipes::RecipeSet;
+use gigsift_scanner::volume_space;
 use gigsift_store::Store;
+use jiff::{SignedDuration, Timestamp};
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{ServerHandler, ServiceExt, tool, tool_handler, tool_router};
 use schemars::JsonSchema;
@@ -23,6 +25,7 @@ use serde::{Deserialize, Serialize};
 
 const DEFAULT_ACTIVE_WITHIN: &str = "14d";
 const DEFAULT_LIMIT: usize = 50;
+const DEFAULT_CHANGES: usize = 30;
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 struct SummaryArgs {
@@ -72,6 +75,16 @@ struct PlanArgs {
     path: Option<String>,
     /// Count a project as active if it changed this recently, like `14d`.
     active_within: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+struct ChangesArgs {
+    /// Folder to compare. Defaults to the home folder.
+    path: Option<String>,
+    /// How far back to compare, like `7d` or `2w`. Defaults to `7d`.
+    since: Option<String>,
+    /// Most changes to return. Defaults to 30.
+    limit: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -185,6 +198,52 @@ impl GigsiftServer {
             let recipes = RecipeSet::builtin();
             let analyzer = Analyzer::for_user(&recipes, window(args.active_within)?);
             find_projects(&root, stale, &analyzer).map_err(|e| e.to_string())
+        })
+        .await
+    }
+
+    #[tool(
+        description = "What grew and shrank since an earlier snapshot, attributed to the \
+        deepest folder responsible. Read-only. If there is no snapshot yet, tell the user to run \
+        `gigsift snapshot`."
+    )]
+    async fn get_storage_changes(
+        &self,
+        Parameters(args): Parameters<ChangesArgs>,
+    ) -> Result<String, String> {
+        self.respond(move || {
+            let root = root_or_home(args.path)?;
+            let since = parse_age(args.since.as_deref().unwrap_or("7d"))?;
+            let limit = args.limit.unwrap_or(DEFAULT_CHANGES);
+            let wanted = Timestamp::now() - SignedDuration::from_secs(since as i64);
+            let baseline = Store::for_user()
+                .and_then(|store| store.baseline_for(&snapshot_key(&root), wanted))
+                .map_err(|e| e.to_string())?;
+            compare_with_snapshot(&root, baseline.as_ref(), since, limit).map_err(|e| e.to_string())
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Estimates when a disk fills, from recorded snapshots. Read-only. \
+        Always report the range, not only the best estimate. A missing upper bound means the \
+        disk may never fill."
+    )]
+    async fn get_storage_forecast(
+        &self,
+        Parameters(args): Parameters<SummaryArgs>,
+    ) -> Result<String, String> {
+        self.respond(move || {
+            let root = root_or_home(args.path)?;
+            let volume = volume_space(&root).ok_or("could not read that disk's free space")?;
+            let samples = Store::for_user()
+                .and_then(|store| store.space_samples(volume.volume))
+                .map_err(|e| e.to_string())?;
+            Ok(ForecastResponse {
+                schema_version: SCHEMA_VERSION,
+                command: "forecast".to_owned(),
+                data: forecast(volume, &samples),
+            })
         })
         .await
     }

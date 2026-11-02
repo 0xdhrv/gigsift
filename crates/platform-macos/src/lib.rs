@@ -4,12 +4,15 @@
 
 #![cfg(unix)]
 
+use std::ffi::CString;
 use std::fs::Metadata;
+use std::mem;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
-use gigsift_core::RecycleError;
 use gigsift_core::probe::{FileId, FileProbe};
+use gigsift_core::{RecycleError, VolumeSpace};
 
 /// Skipped when scanning from `/`: other volumes, plus the view of the data
 /// volume that firmlinks already expose at `/Users` and friends.
@@ -30,6 +33,24 @@ pub fn probe_file(path: &Path, meta: &Metadata) -> FileProbe {
 
 pub fn volume_id(_path: &Path, meta: &Metadata) -> Option<u64> {
     Some(meta.dev())
+}
+
+/// How full the volume holding `path` is, in bytes. `f_bavail` is what a normal user
+/// can write. Purgeable space isn't included, so macOS may be able to free more.
+pub fn volume_space(path: &Path) -> Option<VolumeSpace> {
+    let c_path = CString::new(path.as_os_str().as_bytes()).ok()?;
+    // SAFETY: `statvfs` is plain data; all-zero is a valid value.
+    let mut stat: libc::statvfs = unsafe { mem::zeroed() };
+    // SAFETY: the path is NUL-terminated and `stat` is writable.
+    if unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) } != 0 {
+        return None;
+    }
+    let unit = stat.f_frsize as u64;
+    Some(VolumeSpace {
+        volume: std::fs::metadata(path).ok()?.dev(),
+        total_bytes: stat.f_blocks as u64 * unit,
+        available_bytes: stat.f_bavail as u64 * unit,
+    })
 }
 
 /// True for iCloud dataless files and directories. Listing a dataless directory

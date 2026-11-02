@@ -14,7 +14,7 @@ use std::sync::Mutex;
 use gigsift_core::probe::{CloneInfo, FileId, FileProbe};
 use gigsift_core::{
     CompletenessStatus, EntryKind, FileIdentity, InaccessiblePath, InaccessibleReason, PathKind,
-    RecycleError, Recycler, ScanCompleteness, ScanMeta, Totals, Warning, WarningCode,
+    RecycleError, Recycler, ScanCompleteness, ScanMeta, Totals, VolumeSpace, Warning, WarningCode,
 };
 use jiff::Timestamp;
 
@@ -184,6 +184,11 @@ impl Recycler for NativeRecycler {
     fn recycle(&self, path: &Path) -> Result<Option<PathBuf>, RecycleError> {
         platform::move_to_trash(path)
     }
+}
+
+/// How full the volume holding `path` is.
+pub fn volume_space(path: &Path) -> Option<VolumeSpace> {
+    platform::volume_space(path)
 }
 
 /// The fingerprint a plan records, so apply can tell if `path` was replaced.

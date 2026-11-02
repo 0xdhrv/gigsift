@@ -11,6 +11,7 @@ use std::os::windows::fs::MetadataExt;
 use std::path::Path;
 use std::ptr;
 
+use gigsift_core::VolumeSpace;
 use gigsift_core::probe::{FileId, FileProbe};
 pub use trash::move_to_trash;
 use windows_sys::Win32::Foundation::{
@@ -20,8 +21,8 @@ use windows_sys::Win32::Storage::FileSystem::{
     BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_ATTRIBUTE_OFFLINE,
     FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS, FILE_ATTRIBUTE_RECALL_ON_OPEN,
     FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ,
-    FILE_SHARE_WRITE, GetCompressedFileSizeW, GetFileInformationByHandle, INVALID_FILE_SIZE,
-    OPEN_EXISTING,
+    FILE_SHARE_WRITE, GetCompressedFileSizeW, GetDiskFreeSpaceExW, GetFileInformationByHandle,
+    INVALID_FILE_SIZE, OPEN_EXISTING,
 };
 
 /// Nothing to exclude: drive letters already separate volumes.
@@ -44,6 +45,24 @@ pub fn probe_file(path: &Path, meta: &Metadata) -> FileProbe {
 
 pub fn volume_id(path: &Path, _meta: &Metadata) -> Option<u64> {
     file_information(&to_wide(path)).map(|i| u64::from(i.dwVolumeSerialNumber))
+}
+
+/// How full the volume holding `path` is, in bytes, for this user.
+pub fn volume_space(path: &Path) -> Option<VolumeSpace> {
+    let wide = to_wide(path);
+    let (mut available, mut total) = (0u64, 0u64);
+    // SAFETY: `wide` is NUL-terminated, and both counters outlive the call.
+    let ok =
+        unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut available, &mut total, ptr::null_mut()) };
+    if ok == 0 {
+        return None;
+    }
+    let info = file_information(&wide)?;
+    Some(VolumeSpace {
+        volume: u64::from(info.dwVolumeSerialNumber),
+        total_bytes: total,
+        available_bytes: available,
+    })
 }
 
 /// True for cloud-only OneDrive files and directories. Enumerating a recall-on-
