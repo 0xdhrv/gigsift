@@ -422,6 +422,44 @@ fn text_output_shows_size_and_top_entries() {
     assert!(text.contains("Largest folders"), "{text}");
 }
 
+fn scan_with_env(root: &str, flag: Option<&str>, key: &str) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_gigsift"));
+    command.arg("scan").arg(root).args(flag);
+    command
+        .env_remove("CLICOLOR_FORCE")
+        .env_remove("NO_COLOR")
+        .env(key, "1");
+    command.output().unwrap()
+}
+
+#[test]
+fn piped_text_keeps_real_paths_and_no_styling() {
+    let dir = fixture();
+    let root = dir.path().to_str().unwrap();
+
+    let output = scan_with_env(root, None, "GIGSIFT_UNSET_FOR_TEST");
+
+    assert!(output.status.success(), "{output:?}");
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(!text.contains('\x1b'), "{text}");
+    assert!(!text.contains('█'), "{text}");
+    let media = dir.path().join("media").display().to_string();
+    assert!(text.contains(&media), "{text}");
+}
+
+#[test]
+fn forcing_color_styles_text_but_never_json() {
+    let dir = fixture();
+    let root = dir.path().to_str().unwrap();
+
+    let text = scan_with_env(root, None, "CLICOLOR_FORCE").stdout;
+    let json = scan_with_env(root, Some("--json"), "CLICOLOR_FORCE").stdout;
+
+    assert!(String::from_utf8(text).unwrap().contains('\x1b'));
+    assert!(!String::from_utf8_lossy(&json).contains('\x1b'));
+    assert!(serde_json::from_slice::<Value>(&json).is_ok());
+}
+
 #[test]
 fn invalid_sizes_are_rejected() {
     let dir = tempdir().unwrap();

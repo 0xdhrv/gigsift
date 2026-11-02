@@ -1,4 +1,5 @@
 mod human;
+mod ui;
 
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
@@ -6,6 +7,7 @@ use std::process::ExitCode;
 use std::sync::OnceLock;
 
 use anyhow::{Context, Result};
+use clap::builder::Styles;
 use clap::{Parser, Subcommand, ValueEnum};
 use gigsift_core::age::parse_age;
 use gigsift_core::size::parse_size;
@@ -29,8 +31,20 @@ const DEFAULT_ACTIVE_WITHIN: &str = "14d";
 /// How much of each path `--json` output carries. Set once, from the command line.
 static JSON_SHARING: OnceLock<PathSharing> = OnceLock::new();
 
+const HELP_STYLES: Styles = Styles::styled()
+    .header(ui::ACCENT.bold())
+    .usage(ui::ACCENT.bold())
+    .literal(ui::STRONG)
+    .placeholder(ui::MUTED);
+
 #[derive(Parser)]
-#[command(name = "gigsift", version, about = "Understand every gigabyte.")]
+#[command(
+    name = "gigsift",
+    version,
+    about = "Understand every gigabyte.",
+    before_help = ui::WORDMARK,
+    styles = HELP_STYLES
+)]
 struct Cli {
     /// How much of each path --json output shows: full, home, or hidden. Use home
     /// or hidden when the output is going to an AI tool.
@@ -315,7 +329,8 @@ fn run(command: Command) -> Result<ExitCode> {
 }
 
 fn run_scan(path: Option<PathBuf>, json: bool) -> Result<()> {
-    let envelope = storage_summary(&resolve_root(path)?)?;
+    let root = resolve_root(path)?;
+    let envelope = ui::working("Scanning", json, || storage_summary(&root))?;
     if json {
         print_json(&envelope)
     } else {
@@ -325,7 +340,8 @@ fn run_scan(path: Option<PathBuf>, json: bool) -> Result<()> {
 }
 
 fn run_top(path: Option<PathBuf>, min_size: u64, limit: usize, json: bool) -> Result<()> {
-    let envelope = largest_entries(&resolve_root(path)?, min_size, limit)?;
+    let root = resolve_root(path)?;
+    let envelope = ui::working("Scanning", json, || largest_entries(&root, min_size, limit))?;
     if json {
         print_json(&envelope)
     } else {
@@ -337,7 +353,7 @@ fn run_top(path: Option<PathBuf>, min_size: u64, limit: usize, json: bool) -> Re
 fn run_explain(path: &Path, active_within: u64, json: bool) -> Result<()> {
     let recipes = RecipeSet::builtin();
     let analyzer = Analyzer::for_user(&recipes, active_within);
-    let envelope = explain(path, &analyzer)?;
+    let envelope = ui::working("Checking", json, || explain(path, &analyzer))?;
     if json {
         print_json(&envelope)
     } else {
@@ -355,7 +371,9 @@ fn run_projects(
     let root = resolve_root(path)?;
     let recipes = RecipeSet::builtin();
     let analyzer = Analyzer::for_user(&recipes, active_within);
-    let envelope = find_projects(&root, stale, &analyzer)?;
+    let envelope = ui::working("Looking for projects", json, || {
+        find_projects(&root, stale, &analyzer)
+    })?;
     if json {
         print_json(&envelope)
     } else {
@@ -368,7 +386,9 @@ fn run_clean_candidates(path: Option<PathBuf>, active_within: u64, json: bool) -
     let root = resolve_root(path)?;
     let recipes = RecipeSet::builtin();
     let analyzer = Analyzer::for_user(&recipes, active_within);
-    let envelope = find_candidates(&root, &analyzer)?;
+    let envelope = ui::working("Looking for candidates", json, || {
+        find_candidates(&root, &analyzer)
+    })?;
     if json {
         print_json(&envelope)
     } else {
@@ -387,12 +407,15 @@ fn run_clean_plan(
     let root = resolve_root(path)?;
     let recipes = RecipeSet::builtin();
     let analyzer = Analyzer::for_user(&recipes, active_within);
-    let envelope = create_plan(&root, target, profile, &analyzer)?;
+    let envelope = ui::working("Planning", json, || {
+        create_plan(&root, target, profile, &analyzer)
+    })?;
     Store::for_user()?.save_plan(&envelope)?;
     if json {
         print_json(&envelope)
     } else {
         human::print_plan(&envelope);
+        human::print_apply_hint(&envelope.data);
         Ok(())
     }
 }
@@ -403,6 +426,7 @@ fn run_clean_show(plan_id: &str, json: bool) -> Result<()> {
         print_json(&envelope)
     } else {
         human::print_plan(&envelope);
+        human::print_apply_hint(&envelope.data);
         Ok(())
     }
 }
@@ -416,13 +440,15 @@ fn run_clean_apply(plan_id: &str, yes: bool, json: bool) -> Result<ExitCode> {
         return Err(CliError::ConfirmationRequired.into());
     }
     if !yes && !confirmed(&plan)? {
-        println!("Cancelled. Nothing was moved.");
+        human::print_cancelled();
         return Ok(ExitCode::SUCCESS);
     }
 
     let recipes = RecipeSet::builtin();
     let analyzer = Analyzer::for_user(&recipes, plan.data.active_within_seconds);
-    let envelope = apply_plan(&plan, &analyzer, &NativeRecycler, &mut store)?;
+    let envelope = ui::working("Rechecking and moving", json, || {
+        apply_plan(&plan, &analyzer, &NativeRecycler, &mut store)
+    })?;
     if json {
         print_json(&envelope)?;
     } else {
@@ -437,11 +463,7 @@ fn run_clean_apply(plan_id: &str, yes: bool, json: bool) -> Result<ExitCode> {
 
 fn confirmed(plan: &Envelope<PlanData>) -> Result<bool> {
     human::print_plan(plan);
-    println!();
-    print!(
-        "Recheck these {} items and move what still qualifies to the Trash? [y/N] ",
-        plan.data.items.len()
-    );
+    human::print_confirmation(plan.data.items.len());
     io::stdout().flush()?;
     let mut answer = String::new();
     io::stdin().read_line(&mut answer)?;
@@ -450,7 +472,9 @@ fn confirmed(plan: &Envelope<PlanData>) -> Result<bool> {
 
 fn run_snapshot(path: Option<PathBuf>, json: bool) -> Result<()> {
     let root = resolve_root(path)?;
-    let (snapshot, envelope) = take_snapshot(&root, SNAPSHOT_MIN_DIRECTORY_BYTES)?;
+    let (snapshot, envelope) = ui::working("Recording", json, || {
+        take_snapshot(&root, SNAPSHOT_MIN_DIRECTORY_BYTES)
+    })?;
     Store::for_user()?.save_snapshot(&snapshot)?;
     if json {
         print_json(&envelope)
@@ -464,7 +488,9 @@ fn run_changes(path: Option<PathBuf>, since: u64, limit: usize, json: bool) -> R
     let root = resolve_root(path)?;
     let wanted = Timestamp::now() - SignedDuration::from_secs(since as i64);
     let baseline = Store::for_user()?.baseline_for(&snapshot_key(&root), wanted)?;
-    let envelope = compare_with_snapshot(&root, baseline.as_ref(), since, limit)?;
+    let envelope = ui::working("Comparing", json, || {
+        compare_with_snapshot(&root, baseline.as_ref(), since, limit)
+    })?;
     if json {
         print_json(&envelope)
     } else {
@@ -523,7 +549,7 @@ fn print_json<T: Serialize>(value: &T) -> Result<()> {
 /// Consumers of `--json` read stdout only, so failures must arrive there too.
 fn report_failure(command: &str, json: bool, error: &anyhow::Error) {
     if !json {
-        eprintln!("gigsift: {error:#}");
+        ui::failure(format!("{error:#}"));
         return;
     }
     let response = ErrorResponse {

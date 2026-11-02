@@ -18,6 +18,8 @@ gigsift-recipes = { path = "crates/recipes", version = "0.2.0" }
 gigsift-scanner = { path = "crates/scanner", version = "0.2.0" }
 gigsift-store = { path = "crates/store", version = "0.2.0" }
 
+anstream = "1"
+anstyle = "1"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 globset = "0.4"

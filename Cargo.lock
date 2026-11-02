@@ -561,6 +561,8 @@ dependencies = [
 name = "gigsift"
 version = "0.2.0"
 dependencies = [
+ "anstream",
+ "anstyle",
  "anyhow",
  "clap",
  "gigsift-core",
