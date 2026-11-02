@@ -1,6 +1,6 @@
 {
   "name": "gigsift",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Understand every gigabyte. Recover space with confidence.",
   "license": "MIT",
   "repository": {
@@ -8,6 +8,10 @@
     "url": "git+https://github.com/0xdhrv/gigsift.git"
   },
   "files": [
+    "bin",
     "README.md"
-  ]
+  ],
+  "bin": {
+    "gigsift": "bin/gigsift.js"
+  }
 }
