@@ -3,29 +3,43 @@ mod human;
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::OnceLock;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use gigsift_core::age::parse_age;
 use gigsift_core::size::parse_size;
 use gigsift_core::{
-    EntryKind, Envelope, ErrorBody, ErrorCode, ErrorResponse, HistoryData, HistoryResponse,
-    PlanData, Profile, SCHEMA_VERSION, ScanData, SizedEntry, TopData,
+    Envelope, ErrorBody, ErrorCode, ErrorResponse, HistoryData, HistoryResponse, PathSharing,
+    PlanData, Profile, SCHEMA_VERSION, redact,
 };
-use gigsift_engine::{Analyzer, ApplyError, apply_plan, create_plan, explain, find_projects};
+use gigsift_engine::{
+    Analyzer, ApplyError, apply_plan, create_plan, explain, find_candidates, find_projects,
+    largest_entries, storage_summary,
+};
 use gigsift_recipes::RecipeSet;
-use gigsift_scanner::{Entry, NativeRecycler, ScanOptions, scan};
+use gigsift_scanner::NativeRecycler;
 use gigsift_store::{Store, StoreError};
 use serde::Serialize;
 
-const SCAN_DIRECTORIES_SHOWN: usize = 20;
 const DEFAULT_ACTIVE_WITHIN: &str = "14d";
+
+/// How much of each path `--json` output carries. Set once, from the command line.
+static JSON_SHARING: OnceLock<PathSharing> = OnceLock::new();
 
 #[derive(Parser)]
 #[command(name = "gigsift", version, about = "Understand every gigabyte.")]
 struct Cli {
+    /// How much of each path --json output shows: full, home, or hidden. Use home
+    /// or hidden when the output is going to an AI tool.
+    #[arg(long, global = true, default_value = "full", value_parser = parse_sharing)]
+    share_paths: PathSharing,
     #[command(subcommand)]
     command: Command,
+}
+
+fn parse_sharing(text: &str) -> Result<PathSharing, String> {
+    text.parse()
 }
 
 #[derive(Subcommand)]
@@ -82,6 +96,11 @@ enum Command {
         #[command(subcommand)]
         command: CleanCommand,
     },
+    /// Run the local MCP server.
+    Mcp {
+        #[command(subcommand)]
+        command: McpCommand,
+    },
     /// Show what gigsift has done, newest first.
     History {
         /// Show at most this many actions.
@@ -95,6 +114,17 @@ enum Command {
 
 #[derive(Subcommand)]
 enum CleanCommand {
+    /// List everything recoverable right now, without saving a plan.
+    Candidates {
+        /// Directory to search. Defaults to your home directory.
+        path: Option<PathBuf>,
+        /// Treat a project as active if it changed this recently, like 14d or 2w.
+        #[arg(long, default_value = DEFAULT_ACTIVE_WITHIN, value_parser = parse_age)]
+        active_within: u64,
+        /// Print the versioned JSON contract instead of text.
+        #[arg(long)]
+        json: bool,
+    },
     /// Build a plan to recover space, and save it for review.
     Plan {
         /// Directory to search. Defaults to your home directory.
@@ -133,6 +163,16 @@ enum CleanCommand {
     },
 }
 
+#[derive(Subcommand)]
+enum McpCommand {
+    /// Serve MCP over stdio. Agents can look and plan, never apply.
+    Serve {
+        /// How much of each path reaches the client: full, home, or hidden.
+        #[arg(long, default_value = "home", value_parser = parse_sharing)]
+        sharing: PathSharing,
+    },
+}
+
 /// Failures that come from the CLI itself rather than the engine.
 #[derive(Debug, thiserror::Error)]
 enum CliError {
@@ -155,11 +195,15 @@ impl From<ProfileArg> for Profile {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    JSON_SHARING.get_or_init(|| cli.share_paths);
     let (name, json) = match &cli.command {
         Command::Scan { json, .. } => ("scan", *json),
         Command::Top { json, .. } => ("top", *json),
         Command::Explain { json, .. } => ("explain", *json),
         Command::Projects { json, .. } => ("projects", *json),
+        Command::Clean {
+            command: CleanCommand::Candidates { json, .. },
+        } => ("clean candidates", *json),
         Command::Clean {
             command: CleanCommand::Plan { json, .. },
         } => ("clean plan", *json),
@@ -170,6 +214,7 @@ fn main() -> ExitCode {
             command: CleanCommand::Apply { json, .. },
         } => ("clean apply", *json),
         Command::History { json, .. } => ("history", *json),
+        Command::Mcp { .. } => ("mcp serve", false),
     };
     match run(cli.command) {
         Ok(code) => code,
@@ -201,6 +246,11 @@ fn run(command: Command) -> Result<ExitCode> {
             json,
         } => run_projects(path, stale, active_within, json),
         Command::Clean { command } => match command {
+            CleanCommand::Candidates {
+                path,
+                active_within,
+                json,
+            } => run_clean_candidates(path, active_within, json),
             CleanCommand::Plan {
                 path,
                 profile,
@@ -214,29 +264,15 @@ fn run(command: Command) -> Result<ExitCode> {
             }
         },
         Command::History { limit, json } => run_history(limit, json),
+        Command::Mcp {
+            command: McpCommand::Serve { sharing },
+        } => gigsift_mcp::serve(sharing).map_err(|error| anyhow::anyhow!("{error}")),
     };
     finished.map(|()| ExitCode::SUCCESS)
 }
 
 fn run_scan(path: Option<PathBuf>, json: bool) -> Result<()> {
-    let root = resolve_root(path)?;
-    // Only directories are listed, so no individual file needs to be kept.
-    let options = ScanOptions {
-        keep_files_from_bytes: u64::MAX,
-    };
-    let result = scan(&root, &options)?;
-    let largest_directories = result
-        .largest(Some(EntryKind::Directory), 0)
-        .into_iter()
-        .take(SCAN_DIRECTORIES_SHOWN)
-        .map(sized_entry)
-        .collect();
-    let data = ScanData {
-        root: display_path(&result.root),
-        totals: result.totals,
-        largest_directories,
-    };
-    let envelope = Envelope::new("scan", result.meta, data);
+    let envelope = storage_summary(&resolve_root(path)?)?;
     if json {
         print_json(&envelope)
     } else {
@@ -246,21 +282,7 @@ fn run_scan(path: Option<PathBuf>, json: bool) -> Result<()> {
 }
 
 fn run_top(path: Option<PathBuf>, min_size: u64, limit: usize, json: bool) -> Result<()> {
-    let root = resolve_root(path)?;
-    let options = ScanOptions {
-        keep_files_from_bytes: min_size,
-    };
-    let result = scan(&root, &options)?;
-    let found = result.largest(None, min_size);
-    let truncated = found.len().saturating_sub(limit) as u64;
-    let entries = found.into_iter().take(limit).map(sized_entry).collect();
-    let data = TopData {
-        root: display_path(&result.root),
-        min_allocated_bytes: min_size,
-        entries,
-        truncated,
-    };
-    let envelope = Envelope::new("top", result.meta, data);
+    let envelope = largest_entries(&resolve_root(path)?, min_size, limit)?;
     if json {
         print_json(&envelope)
     } else {
@@ -295,6 +317,19 @@ fn run_projects(
         print_json(&envelope)
     } else {
         human::print_projects(&envelope);
+        Ok(())
+    }
+}
+
+fn run_clean_candidates(path: Option<PathBuf>, active_within: u64, json: bool) -> Result<()> {
+    let root = resolve_root(path)?;
+    let recipes = RecipeSet::builtin();
+    let analyzer = Analyzer::for_user(&recipes, active_within);
+    let envelope = find_candidates(&root, &analyzer)?;
+    if json {
+        print_json(&envelope)
+    } else {
+        human::print_candidates(&envelope);
         Ok(())
     }
 }
@@ -392,21 +427,11 @@ fn resolve_root(path: Option<PathBuf>) -> Result<PathBuf> {
     }
 }
 
-fn sized_entry(entry: &Entry) -> SizedEntry {
-    SizedEntry {
-        path: display_path(&entry.path),
-        kind: entry.kind,
-        logical_bytes: entry.logical_bytes,
-        allocated_bytes: entry.allocated_bytes,
-    }
-}
-
-fn display_path(path: &Path) -> String {
-    path.to_string_lossy().into_owned()
-}
-
 fn print_json<T: Serialize>(value: &T) -> Result<()> {
-    println!("{}", serde_json::to_string_pretty(value)?);
+    let mut value = serde_json::to_value(value)?;
+    let sharing = JSON_SHARING.get().copied().unwrap_or(PathSharing::Full);
+    redact(&mut value, sharing, std::env::home_dir().as_deref());
+    println!("{}", serde_json::to_string_pretty(&value)?);
     Ok(())
 }
 

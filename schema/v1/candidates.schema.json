@@ -1,0 +1,511 @@
+{
+  "$defs": {
+    "Action": {
+      "description": "The fixed allow-list of things a recipe may recommend. There is deliberately\nno variant that carries a command.",
+      "enum": [
+        "move_to_trash",
+        "report_only",
+        "guided_tool"
+      ],
+      "type": "string"
+    },
+    "BlockReason": {
+      "description": "Why something is not a candidate right now.",
+      "oneOf": [
+        {
+          "enum": [
+            "uncommitted_changes",
+            "unpushed_commits"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "recent_activity",
+          "description": "Project files changed inside the activity window.",
+          "type": "string"
+        },
+        {
+          "const": "running_process",
+          "description": "A running process is working inside the project.",
+          "type": "string"
+        },
+        {
+          "const": "git_tracked_files",
+          "description": "Git tracks files here, so it is source.",
+          "type": "string"
+        },
+        {
+          "const": "untracked_work",
+          "description": "Holds files git neither tracks nor ignores.",
+          "type": "string"
+        },
+        {
+          "const": "not_ignored_by_git",
+          "description": "The recipe needs git to ignore this before calling it output.",
+          "type": "string"
+        },
+        {
+          "const": "git_unavailable",
+          "description": "Git could not answer, and a missing answer is not a clean one.",
+          "type": "string"
+        },
+        {
+          "const": "app_running",
+          "description": "An application that owns this data is running.",
+          "type": "string"
+        },
+        {
+          "const": "protected_path",
+          "description": "The safety policy never allows this path.",
+          "type": "string"
+        },
+        {
+          "const": "non_unicode_path",
+          "description": "The path can't be carried exactly in JSON, so a plan could not name it.",
+          "type": "string"
+        },
+        {
+          "const": "identity_unavailable",
+          "description": "The OS would not identify this path, so apply could not revalidate it.",
+          "type": "string"
+        }
+      ]
+    },
+    "BlockedCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "allocated_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "blocked_by": {
+          "items": {
+            "$ref": "#/$defs/BlockReason"
+          },
+          "type": "array"
+        },
+        "path": {
+          "type": "string"
+        },
+        "recipe_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "recipe_id",
+        "allocated_bytes",
+        "blocked_by"
+      ],
+      "type": "object"
+    },
+    "Candidate": {
+      "additionalProperties": false,
+      "description": "A single item a cleanup plan proposes. Producing one never touches the disk.",
+      "properties": {
+        "allocated_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "candidate_id": {
+          "type": "string"
+        },
+        "category": {
+          "$ref": "#/$defs/Category"
+        },
+        "confidence": {
+          "format": "double",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        "git_status": {
+          "$ref": "#/$defs/GitStatus"
+        },
+        "logical_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "loses": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Absent for items that belong to no project, such as a global cache."
+        },
+        "reason": {
+          "type": "string"
+        },
+        "rebuild_cost": {
+          "$ref": "#/$defs/RebuildCost"
+        },
+        "reclaimable_bytes_estimate": {
+          "description": "What removal is expected to free; hard links and clones can make this\nsmaller than `allocated_bytes`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "recommended_action": {
+          "$ref": "#/$defs/Action"
+        },
+        "regenerate": {
+          "description": "Guidance for a human. gigsift never executes this text.",
+          "type": "string"
+        },
+        "requires_confirmation": {
+          "type": "boolean"
+        },
+        "risk": {
+          "$ref": "#/$defs/Risk"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "candidate_id",
+        "path",
+        "category",
+        "git_status",
+        "logical_bytes",
+        "allocated_bytes",
+        "reclaimable_bytes_estimate",
+        "reason",
+        "loses",
+        "regenerate",
+        "rebuild_cost",
+        "risk",
+        "confidence",
+        "recommended_action",
+        "requires_confirmation"
+      ],
+      "type": "object"
+    },
+    "CandidatesData": {
+      "additionalProperties": false,
+      "description": "`data` for the `find_cleanup_candidates` MCP tool. A survey rather than a plan,\nso it has no id and nothing is saved.",
+      "properties": {
+        "advisories": {
+          "items": {
+            "$ref": "#/$defs/Candidate"
+          },
+          "type": "array"
+        },
+        "blocked": {
+          "items": {
+            "$ref": "#/$defs/BlockedCandidate"
+          },
+          "type": "array"
+        },
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/Candidate"
+          },
+          "type": "array"
+        },
+        "reclaimable_bytes_estimate": {
+          "description": "Sum of `reclaimable_bytes_estimate` across `candidates`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "root",
+        "candidates",
+        "reclaimable_bytes_estimate",
+        "advisories",
+        "blocked"
+      ],
+      "type": "object"
+    },
+    "Category": {
+      "enum": [
+        "developer_dependency",
+        "build_artifact",
+        "python_environment",
+        "package_cache",
+        "tool_cache",
+        "model_cache"
+      ],
+      "type": "string"
+    },
+    "CompletenessStatus": {
+      "oneOf": [
+        {
+          "const": "complete",
+          "description": "Every entry under the root was visited.",
+          "type": "string"
+        },
+        {
+          "const": "partial",
+          "description": "Something could not be read, so totals are a lower bound.",
+          "type": "string"
+        }
+      ]
+    },
+    "GitStatus": {
+      "oneOf": [
+        {
+          "enum": [
+            "clean",
+            "dirty",
+            "untracked",
+            "unpushed_commits",
+            "not_a_repository"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "unknown",
+          "description": "Git could not be consulted. Treated as unsafe, never as clean.",
+          "type": "string"
+        }
+      ]
+    },
+    "InaccessiblePath": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "description": "OS error text, for humans. Not stable across platforms or locales.",
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/InaccessibleReason"
+        }
+      },
+      "required": [
+        "path",
+        "reason",
+        "detail"
+      ],
+      "type": "object"
+    },
+    "InaccessibleReason": {
+      "enum": [
+        "permission_denied",
+        "not_found",
+        "path_too_long",
+        "other"
+      ],
+      "type": "string"
+    },
+    "NetworkCost": {
+      "enum": [
+        "none",
+        "low",
+        "high"
+      ],
+      "type": "string"
+    },
+    "ProjectRef": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "type": "boolean"
+        },
+        "last_activity": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "root",
+        "active"
+      ],
+      "type": "object"
+    },
+    "RebuildCost": {
+      "additionalProperties": false,
+      "properties": {
+        "network": {
+          "$ref": "#/$defs/NetworkCost"
+        },
+        "time": {
+          "$ref": "#/$defs/RebuildTime"
+        }
+      },
+      "required": [
+        "time",
+        "network"
+      ],
+      "type": "object"
+    },
+    "RebuildTime": {
+      "enum": [
+        "seconds",
+        "minutes",
+        "hours"
+      ],
+      "type": "string"
+    },
+    "Risk": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "type": "string"
+    },
+    "ScanCompleteness": {
+      "additionalProperties": false,
+      "properties": {
+        "directories_unreadable": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "directories_visited": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "entries_unreadable": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "mount_points_skipped": {
+          "description": "Directories on another volume, left out of totals. Not a failure.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/$defs/CompletenessStatus"
+        }
+      },
+      "required": [
+        "status",
+        "directories_visited",
+        "directories_unreadable",
+        "entries_unreadable",
+        "mount_points_skipped"
+      ],
+      "type": "object"
+    },
+    "Warning": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/WarningCode"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "WarningCode": {
+      "oneOf": [
+        {
+          "const": "incomplete_scan",
+          "description": "Totals are a lower bound because some paths could not be read.",
+          "type": "string"
+        },
+        {
+          "const": "full_disk_access_missing",
+          "description": "macOS privacy protection blocked paths; Full Disk Access would reveal them.",
+          "type": "string"
+        },
+        {
+          "const": "changed_during_scan",
+          "description": "Files changed or vanished while being scanned.",
+          "type": "string"
+        },
+        {
+          "const": "non_unicode_paths",
+          "description": "Some paths are not valid Unicode and are shown lossily.",
+          "type": "string"
+        },
+        {
+          "const": "cloud_placeholders",
+          "description": "Files whose content lives in the cloud take little or no local space.",
+          "type": "string"
+        },
+        {
+          "const": "diverged_clones",
+          "description": "Files modified since cloning still share blocks that cannot be attributed,\nso allocated bytes may overcount.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Fields every top-level response carries, wrapped around command-specific data.\n\nTotals are never reported without these: a number with no completeness or\nfreshness attached is not honest about what it covers.",
+  "properties": {
+    "command": {
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/CandidatesData"
+    },
+    "inaccessible_paths": {
+      "items": {
+        "$ref": "#/$defs/InaccessiblePath"
+      },
+      "type": "array"
+    },
+    "scan_completeness": {
+      "$ref": "#/$defs/ScanCompleteness"
+    },
+    "scanned_at": {
+      "description": "When the scan behind this response finished.",
+      "type": "string"
+    },
+    "schema_version": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "warnings": {
+      "items": {
+        "$ref": "#/$defs/Warning"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command",
+    "scanned_at",
+    "scan_completeness",
+    "inaccessible_paths",
+    "warnings",
+    "data"
+  ],
+  "title": "Envelope",
+  "type": "object"
+}

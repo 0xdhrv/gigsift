@@ -15,6 +15,7 @@ anyhow.workspace = true
 clap.workspace = true
 gigsift-core.workspace = true
 gigsift-engine.workspace = true
+gigsift-mcp.workspace = true
 gigsift-recipes.workspace = true
 gigsift-scanner.workspace = true
 gigsift-store.workspace = true

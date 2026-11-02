@@ -105,6 +105,19 @@ pub struct PlanData {
     pub blocked: Vec<BlockedCandidate>,
 }
 
+/// `data` for the `find_cleanup_candidates` MCP tool. A survey rather than a plan,
+/// so it has no id and nothing is saved.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CandidatesData {
+    pub root: String,
+    pub candidates: Vec<Candidate>,
+    /// Sum of `reclaimable_bytes_estimate` across `candidates`.
+    pub reclaimable_bytes_estimate: u64,
+    pub advisories: Vec<Candidate>,
+    pub blocked: Vec<BlockedCandidate>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PlanItem {

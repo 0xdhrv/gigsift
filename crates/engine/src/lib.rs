@@ -9,6 +9,7 @@ mod explain;
 pub mod git;
 mod plan;
 mod projects;
+mod storage;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,8 +17,9 @@ use std::path::{Path, PathBuf};
 pub use analysis::{Analyzer, ProjectContext};
 pub use apply::{ApplyError, apply_plan};
 pub use explain::explain;
-pub use plan::create_plan;
+pub use plan::{create_plan, find_candidates};
 pub use projects::find_projects;
+pub use storage::{largest_entries, storage_summary};
 
 /// Resolves everything above the final name, so a symlink is itself described
 /// while `/tmp/../etc` and symlinked parents can't dodge the safety checks.

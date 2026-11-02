@@ -5,8 +5,8 @@
 use std::path::{Path, PathBuf};
 
 use gigsift_core::{
-    ApplyData, Candidate, Envelope, ErrorResponse, ExplainData, HistoryResponse, PlanData,
-    ProjectsData, SCHEMA_VERSION, ScanData, TopData,
+    ApplyData, Candidate, CandidatesData, Envelope, ErrorResponse, ExplainData, HistoryResponse,
+    PlanData, ProjectsData, SCHEMA_VERSION, ScanData, TopData,
 };
 use schemars::{JsonSchema, schema_for};
 use serde_json::{Value, json};
@@ -43,6 +43,7 @@ fn published_schemas_match_the_types() {
     check_schema::<Envelope<PlanData>>("plan");
     check_schema::<Envelope<ApplyData>>("apply");
     check_schema::<HistoryResponse>("history");
+    check_schema::<Envelope<CandidatesData>>("candidates");
     check_schema::<Candidate>("candidate");
     check_schema::<ErrorResponse>("error");
 }

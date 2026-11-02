@@ -9,6 +9,7 @@ pub mod apply;
 pub mod candidate;
 pub mod plan;
 pub mod probe;
+pub mod redact;
 pub mod report;
 pub mod safety;
 pub mod size;
@@ -16,6 +17,7 @@ pub mod size;
 pub use apply::*;
 pub use candidate::*;
 pub use plan::*;
+pub use redact::{PathSharing, redact};
 pub use report::*;
 pub use safety::{ProtectedReason, protected_reason};
 

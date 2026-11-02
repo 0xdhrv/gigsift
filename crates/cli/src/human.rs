@@ -2,9 +2,10 @@
 
 use gigsift_core::size::format_size;
 use gigsift_core::{
-    ActionStatus, ApplyData, ApplyOutcome, BlockReason, Candidate, ChangeKind, CompletenessStatus,
-    EntryKind, Envelope, ExplainData, GitStatus, HistoryData, NetworkCost, PathKind, PlanData,
-    ProjectsData, RebuildTime, Risk, SafetyVerdict, ScanData, SizedEntry, TopData,
+    ActionStatus, ApplyData, ApplyOutcome, BlockReason, Candidate, CandidatesData, ChangeKind,
+    CompletenessStatus, EntryKind, Envelope, ExplainData, GitStatus, HistoryData, NetworkCost,
+    PathKind, PlanData, ProjectsData, RebuildTime, Risk, SafetyVerdict, ScanData, SizedEntry,
+    TopData,
 };
 
 pub fn print_scan(report: &Envelope<ScanData>) {
@@ -192,6 +193,19 @@ pub fn print_plan(report: &Envelope<PlanData>) {
     }
     println!();
     println!("Nothing was changed. This is a plan only.");
+    print_trust(report);
+}
+
+pub fn print_candidates(report: &Envelope<CandidatesData>) {
+    let data = &report.data;
+    println!(
+        "{} recoverable under {}",
+        format_size(data.reclaimable_bytes_estimate),
+        data.root
+    );
+    for candidate in &data.candidates {
+        print_candidate(candidate);
+    }
     print_trust(report);
 }
 

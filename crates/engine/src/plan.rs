@@ -5,8 +5,8 @@ use std::cmp::Reverse;
 use std::path::Path;
 
 use gigsift_core::{
-    Action, BlockedCandidate, Candidate, Envelope, GitStatus, PlanData, PlanItem, Profile,
-    ProjectRef, Risk, SCHEMA_VERSION,
+    Action, BlockedCandidate, Candidate, CandidatesData, Envelope, GitStatus, PlanData, PlanItem,
+    Profile, ProjectRef, Risk, SCHEMA_VERSION,
 };
 use gigsift_scanner::RootError;
 use ulid::Ulid;
@@ -97,6 +97,39 @@ pub fn create_plan(
         blocked,
     };
     Ok(Envelope::new("clean plan", survey.meta, data))
+}
+
+/// Everything recoverable right now. A survey rather than a plan: it has no id,
+/// nothing is saved, and it can't be applied.
+pub fn find_candidates(
+    root: &Path,
+    analyzer: &Analyzer,
+) -> Result<Envelope<CandidatesData>, RootError> {
+    let plan = create_plan(root, u64::MAX, Profile::Developer, analyzer)?;
+    let Envelope {
+        schema_version,
+        scanned_at,
+        scan_completeness,
+        inaccessible_paths,
+        warnings,
+        data,
+        ..
+    } = plan;
+    Ok(Envelope {
+        schema_version,
+        command: "clean candidates".to_owned(),
+        scanned_at,
+        scan_completeness,
+        inaccessible_paths,
+        warnings,
+        data: CandidatesData {
+            root: data.root,
+            reclaimable_bytes_estimate: data.reclaimable_bytes_estimate,
+            candidates: data.items.into_iter().map(|item| item.candidate).collect(),
+            advisories: data.advisories,
+            blocked: data.blocked,
+        },
+    })
 }
 
 fn risk_rank(risk: Risk) -> u8 {
