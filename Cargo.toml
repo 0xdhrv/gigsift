@@ -3,20 +3,20 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/0xdhrv/gigsift"
 
 [workspace.dependencies]
-gigsift-core = { path = "crates/core", version = "0.2.0" }
-gigsift-engine = { path = "crates/engine", version = "0.2.0" }
-gigsift-mcp = { path = "crates/mcp", version = "0.2.0" }
-gigsift-platform-macos = { path = "crates/platform-macos", version = "0.2.0" }
-gigsift-platform-windows = { path = "crates/platform-windows", version = "0.2.0" }
-gigsift-recipes = { path = "crates/recipes", version = "0.2.0" }
-gigsift-scanner = { path = "crates/scanner", version = "0.2.0" }
-gigsift-store = { path = "crates/store", version = "0.2.0" }
+gigsift-core = { path = "crates/core", version = "0.2.1" }
+gigsift-engine = { path = "crates/engine", version = "0.2.1" }
+gigsift-mcp = { path = "crates/mcp", version = "0.2.1" }
+gigsift-platform-macos = { path = "crates/platform-macos", version = "0.2.1" }
+gigsift-platform-windows = { path = "crates/platform-windows", version = "0.2.1" }
+gigsift-recipes = { path = "crates/recipes", version = "0.2.1" }
+gigsift-scanner = { path = "crates/scanner", version = "0.2.1" }
+gigsift-store = { path = "crates/store", version = "0.2.1" }
 
 anstream = "1"
 anstyle = "1"

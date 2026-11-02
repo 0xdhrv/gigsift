@@ -559,7 +559,7 @@ dependencies = [
 
 [[package]]
 name = "gigsift"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anstream",
  "anstyle",
@@ -581,7 +581,7 @@ dependencies = [
 
 [[package]]
 name = "gigsift-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "jiff",
  "jsonschema",
@@ -592,7 +592,7 @@ dependencies = [
 
 [[package]]
 name = "gigsift-engine"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "gigsift-core",
  "gigsift-recipes",
@@ -608,7 +608,7 @@ dependencies = [
 
 [[package]]
 name = "gigsift-mcp"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "gigsift-core",
  "gigsift-engine",
@@ -625,7 +625,7 @@ dependencies = [
 
 [[package]]
 name = "gigsift-platform-macos"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "gigsift-core",
  "libc",
@@ -634,7 +634,7 @@ dependencies = [
 
 [[package]]
 name = "gigsift-platform-windows"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "gigsift-core",
  "windows",
@@ -644,7 +644,7 @@ dependencies = [
 
 [[package]]
 name = "gigsift-recipes"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "gigsift-core",
  "globset",
@@ -656,7 +656,7 @@ dependencies = [
 
 [[package]]
 name = "gigsift-scanner"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "gigsift-core",
  "gigsift-platform-macos",
@@ -668,7 +668,7 @@ dependencies = [
 
 [[package]]
 name = "gigsift-store"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "gigsift-core",
  "jiff",
