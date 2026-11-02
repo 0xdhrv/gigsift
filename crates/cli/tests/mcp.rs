@@ -147,7 +147,7 @@ fn tool_names(client: &mut Client) -> Vec<String> {
 }
 
 fn modules(fixture: &Fixture) -> String {
-    let path = fixture.home.join("code/app/node_modules");
+    let path = fixture.home.join("code").join("app").join("node_modules");
     path.to_string_lossy().into_owned()
 }
 
