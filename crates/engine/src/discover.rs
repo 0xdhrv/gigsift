@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use gigsift_core::{
     BlockReason, CompletenessStatus, FileIdentity, ScanCompleteness, ScanMeta, Warning,
@@ -21,7 +21,7 @@ const HOME_SKIP: &[&str] = &["AppData", "Library", "Movies", "Music", "Pictures"
 pub(crate) struct Artifact<'a> {
     pub path: PathBuf,
     pub hit: Match<'a>,
-    pub project: Option<Rc<ProjectContext>>,
+    pub project: Option<Arc<ProjectContext>>,
     pub blocked_by: Vec<BlockReason>,
     pub size: Inspection,
     pub identity: Option<FileIdentity>,
@@ -50,37 +50,53 @@ pub(crate) fn survey<'a>(root: &Path, analyzer: &Analyzer<'a>) -> Result<Survey<
         );
     }
 
-    // Checks share cached project state, so only sizing runs in parallel.
-    let sizes: Vec<_> = found.par_iter().map(|(path, _)| inspect(path)).collect();
+    let starts: Vec<&Path> = found
+        .iter()
+        .filter_map(|(path, hit)| project_start(path, hit))
+        .collect();
+    // Loading projects mostly waits on git, so it can overlap with sizing.
+    let (sizes, ()) = rayon::join(
+        || {
+            let sizes = found.par_iter().map(|(path, _)| inspect(path));
+            sizes.collect::<Vec<_>>()
+        },
+        || analyzer.load_projects(&starts),
+    );
 
-    let mut artifacts = Vec::new();
+    let artifacts: Vec<_> = found
+        .into_par_iter()
+        .zip(sizes)
+        .filter_map(|((path, hit), size)| {
+            // Gone since the walk found it, which is not worth failing the run over.
+            let size = size.ok()?;
+            let project = project_start(&path, &hit).and_then(|start| analyzer.project(start));
+            let mut blocked_by = analyzer.check(hit.recipe, &path, project.as_deref());
+            let identity = file_identity(&path, size.allocated_bytes);
+            if identity.is_none() {
+                blocked_by.push(BlockReason::IdentityUnavailable);
+            }
+            Some(Artifact {
+                path,
+                hit,
+                project,
+                blocked_by,
+                size,
+                identity,
+            })
+        })
+        .collect();
+
     let mut meta = empty_meta();
-    for ((path, hit), size) in found.into_iter().zip(sizes) {
-        // Gone since the walk found it, which is not worth failing the run over.
-        let Ok(size) = size else {
-            continue;
-        };
-        merge(&mut meta, &size.meta);
-        let is_project_artifact = !hit.recipe.detect.paths.is_empty();
-        let project = path
-            .parent()
-            .filter(|_| is_project_artifact)
-            .and_then(|parent| analyzer.project(parent));
-        let mut blocked_by = analyzer.check(hit.recipe, &path, project.as_deref());
-        let identity = file_identity(&path, size.allocated_bytes);
-        if identity.is_none() {
-            blocked_by.push(BlockReason::IdentityUnavailable);
-        }
-        artifacts.push(Artifact {
-            path,
-            hit,
-            project,
-            blocked_by,
-            size,
-            identity,
-        });
+    for artifact in &artifacts {
+        merge(&mut meta, &artifact.size.meta);
     }
     Ok(Survey { artifacts, meta })
+}
+
+/// Where the project around `path` would be found. Tool caches belong to none.
+fn project_start<'p>(path: &'p Path, hit: &Match) -> Option<&'p Path> {
+    path.parent()
+        .filter(|_| !hit.recipe.detect.paths.is_empty())
 }
 
 fn home_skip_list(home: &Path) -> Vec<PathBuf> {

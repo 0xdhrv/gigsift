@@ -1,15 +1,16 @@
 //! What gigsift knows about a project, and the checks that veto a candidate.
 
-use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use gigsift_core::{BlockReason, GitStatus, Protection, protected_reason};
 use gigsift_recipes::{Platform, Recipe, RecipeSet};
+use gigsift_scanner::newest_change;
 use jiff::{SignedDuration, Timestamp};
+use rayon::prelude::*;
 
-use crate::activity::{RunningProcesses, last_file_change};
+use crate::activity::RunningProcesses;
 use crate::git::{self, Repo};
 
 /// Checked in order, so a repository root beats a manifest in the same folder.
@@ -33,8 +34,11 @@ pub struct Analyzer<'a> {
     processes: RunningProcesses,
     active_within_seconds: u64,
     now: Timestamp,
-    projects: RefCell<HashMap<PathBuf, Rc<ProjectContext>>>,
+    repos: Mutex<HashMap<PathBuf, RepoLookup>>,
+    projects: Mutex<HashMap<PathBuf, Arc<ProjectContext>>>,
 }
+
+type RepoLookup = Result<Option<Repo>, git::GitUnavailable>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectContext {
@@ -66,7 +70,8 @@ impl<'a> Analyzer<'a> {
             processes,
             active_within_seconds,
             now: Timestamp::now(),
-            projects: RefCell::default(),
+            repos: Mutex::default(),
+            projects: Mutex::default(),
         }
     }
 
@@ -87,25 +92,66 @@ impl<'a> Analyzer<'a> {
 
     /// The project around `start`, if any. The search stops at home: a stray
     /// `package.json` there doesn't make everything under it one project.
-    pub fn project(&self, start: &Path) -> Option<Rc<ProjectContext>> {
+    pub fn project(&self, start: &Path) -> Option<Arc<ProjectContext>> {
         let (dir, marker) = self.nearest_marker(start)?;
-        let lookup = git::find_repo(dir);
-        let repo = lookup.clone().ok().flatten().filter(|repo| {
-            // A home folder kept in git says nothing about the projects under it.
-            self.home.as_deref() != Some(repo.top.as_path())
+        Some(self.context(dir, marker))
+    }
+
+    /// Gathers every project around `starts` in parallel, so that later calls to
+    /// [`Self::project`] only look them up. Git and the walks are most of a survey.
+    pub(crate) fn load_projects(&self, starts: &[&Path]) {
+        let markers: HashSet<_> = starts
+            .par_iter()
+            .filter_map(|start| self.nearest_marker(start))
+            .collect();
+        let markers: Vec<_> = markers.into_iter().collect();
+        markers.par_iter().for_each(|(dir, _)| {
+            let _ = self.repo_lookup(dir);
         });
+
+        // One folder per root, or two threads could gather the same project.
+        let mut roots = HashSet::new();
+        let unique: Vec<_> = markers
+            .into_iter()
+            .filter(|(dir, _)| {
+                let lookup = self.repo_lookup(dir);
+                let repo = self.usable_repo(&lookup);
+                roots.insert(repo.map_or(dir.to_path_buf(), |repo| repo.top))
+            })
+            .collect();
+        unique.par_iter().for_each(|(dir, marker)| {
+            self.context(dir, marker);
+        });
+    }
+
+    fn context(&self, dir: &Path, marker: &str) -> Arc<ProjectContext> {
+        let lookup = self.repo_lookup(dir);
+        let repo = self.usable_repo(&lookup);
         let root = repo.as_ref().map_or(dir, |repo| repo.top.as_path());
-        if let Some(known) = self.projects.borrow().get(root) {
-            return Some(Rc::clone(known));
+        if let Some(known) = lock(&self.projects).get(root) {
+            return Arc::clone(known);
         }
 
         let marker = if repo.is_some() { ".git" } else { marker };
         let context = self.gather(root, marker, repo.clone(), lookup.is_err());
-        let context = Rc::new(context);
-        self.projects
-            .borrow_mut()
-            .insert(root.to_owned(), Rc::clone(&context));
-        Some(context)
+        let context = Arc::new(context);
+        lock(&self.projects).insert(root.to_owned(), Arc::clone(&context));
+        context
+    }
+
+    fn repo_lookup(&self, dir: &Path) -> RepoLookup {
+        if let Some(known) = lock(&self.repos).get(dir) {
+            return known.clone();
+        }
+        let lookup = git::find_repo(dir);
+        lock(&self.repos).insert(dir.to_owned(), lookup.clone());
+        lookup
+    }
+
+    /// A home folder kept in git says nothing about the projects under it.
+    fn usable_repo(&self, lookup: &RepoLookup) -> Option<Repo> {
+        let repo = lookup.clone().ok().flatten()?;
+        (self.home.as_deref() != Some(repo.top.as_path())).then_some(repo)
     }
 
     fn nearest_marker<'p>(&self, start: &'p Path) -> Option<(&'p Path, &'static str)> {
@@ -129,14 +175,13 @@ impl<'a> Analyzer<'a> {
         let git_failed = git_failed || matches!(state, Some(Err(_)));
         let state = state.and_then(Result::ok);
 
-        let artifacts: Vec<PathBuf> = self
-            .recipes
-            .find(root, self.platform, &[])
-            .into_iter()
-            .map(|(path, _)| path)
-            .collect();
+        // A dev server rewriting `.next` says nothing a source edit wouldn't, and an
+        // install can touch thousands of files at once, so artifacts don't count.
+        let last_file_change = newest_change(root, |dir| {
+            dir.ends_with(".git") || self.recipes.match_dir(dir, self.platform).is_some()
+        });
         let last_commit = state.and_then(|state| state.last_commit);
-        let last_activity = last_file_change(root, &artifacts).max(last_commit);
+        let last_activity = last_file_change.max(last_commit);
 
         let mut active_because = Vec::new();
         if self.is_recent(last_activity) {
@@ -254,4 +299,8 @@ impl<'a> Analyzer<'a> {
             (Protection::ContainsGitTrackedFiles | Protection::ContainsUntrackedWork, None) => {}
         }
     }
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().expect("project thread panicked")
 }

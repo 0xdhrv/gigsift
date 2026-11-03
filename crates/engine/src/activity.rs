@@ -1,9 +1,7 @@
 //! Signals that a project is in use, and so that its files should be left alone.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 
-use jiff::Timestamp;
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 /// Where running processes are working. Best effort: processes owned by another
@@ -63,33 +61,4 @@ impl RunningProcesses {
     pub fn uses(&self, project: &Path) -> bool {
         self.working_dirs.iter().any(|dir| dir.starts_with(project))
     }
-}
-
-/// The newest file change in `root`, leaving out `.git` and the `skip` directories.
-/// Artifacts are skipped because a dev server rewriting `.next` says nothing a
-/// source edit wouldn't, and an install can touch thousands of files at once.
-pub fn last_file_change(root: &Path, skip: &[PathBuf]) -> Option<Timestamp> {
-    let mut newest = None;
-    let mut pending = vec![root.to_owned()];
-    while let Some(dir) = pending.pop() {
-        let Ok(entries) = fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let Ok(meta) = entry.metadata() else {
-                continue;
-            };
-            let path = entry.path();
-            if meta.is_dir() {
-                if entry.file_name() != ".git" && !skip.contains(&path) {
-                    pending.push(path);
-                }
-                continue;
-            }
-            let modified = meta.modified().ok();
-            let time = modified.and_then(|t| Timestamp::try_from(t).ok());
-            newest = newest.max(time);
-        }
-    }
-    newest
 }

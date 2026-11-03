@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 gigsift-core.workspace = true
 globset.workspace = true
+rayon.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 toml.workspace = true

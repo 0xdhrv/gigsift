@@ -16,11 +16,13 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
 use gigsift_core::probe::{CloneInfo, FileId, FileProbe};
+use jiff::Timestamp;
 
 const ATTR_BIT_MAP_COUNT: u16 = 5;
 const ATTR_CMN_NAME: u32 = 0x0000_0001;
 const ATTR_CMN_DEVID: u32 = 0x0000_0002;
 const ATTR_CMN_OBJTYPE: u32 = 0x0000_0008;
+const ATTR_CMN_MODTIME: u32 = 0x0000_0400;
 const ATTR_CMN_FLAGS: u32 = 0x0004_0000;
 const ATTR_CMN_FILEID: u32 = 0x0200_0000;
 const ATTR_CMN_ERROR: u32 = 0x2000_0000;
@@ -56,13 +58,16 @@ pub enum BulkKind {
     File {
         logical_bytes: u64,
         probe: FileProbe,
+        modified: Option<Timestamp>,
     },
     /// Whether this crosses into another volume isn't known here: replies can describe
     /// the folder a volume is mounted over, so that takes a real `lstat`.
     Directory {
         placeholder: bool,
     },
-    Symlink,
+    Symlink {
+        modified: Option<Timestamp>,
+    },
     /// A socket, device, or anything else, which needs a normal `lstat`.
     Other,
 }
@@ -108,6 +113,16 @@ impl Reader<'_> {
     fn u64_if(&mut self, present: bool) -> io::Result<Option<u64>> {
         present.then(|| self.u64()).transpose()
     }
+
+    /// A `timespec`: signed seconds, then nanoseconds. `None` if absent or out of range.
+    fn time_if(&mut self, present: bool) -> io::Result<Option<Timestamp>> {
+        if !present {
+            return Ok(None);
+        }
+        let seconds = self.u64()? as i64;
+        let nanoseconds = self.u64()? as i32;
+        Ok(Timestamp::new(seconds, nanoseconds).ok())
+    }
 }
 
 /// Parses one entry. `visit` gets the name, then what it is or the OS error for it.
@@ -146,6 +161,7 @@ fn parse_entry(
 
     let device = reader.u32_if(has(common, ATTR_CMN_DEVID))?.map(u64::from);
     let object_type = reader.u32_if(has(common, ATTR_CMN_OBJTYPE))?;
+    let modified = reader.time_if(has(common, ATTR_CMN_MODTIME))?;
     let flags = reader.u32_if(has(common, ATTR_CMN_FLAGS))?.unwrap_or(0);
     let file_id = reader.u64_if(has(common, ATTR_CMN_FILEID))?;
     let placeholder = flags & SF_DATALESS != 0;
@@ -178,12 +194,13 @@ fn parse_entry(
                             references,
                         ),
                     },
+                    modified,
                 },
                 // Nothing to measure with, so this entry takes the slow path.
                 _ => BulkKind::Other,
             }
         }
-        (Some(VLNK), _) => BulkKind::Symlink,
+        (Some(VLNK), _) => BulkKind::Symlink { modified },
         _ => BulkKind::Other,
     };
     visit(name, Ok(kind));
@@ -230,6 +247,7 @@ pub fn read_directory(
         | ATTR_CMN_ERROR
         | ATTR_CMN_OBJTYPE
         | ATTR_CMN_DEVID
+        | ATTR_CMN_MODTIME
         | ATTR_CMN_FILEID
         | ATTR_CMN_FLAGS;
     request.fileattr = ATTR_FILE_LINKCOUNT | ATTR_FILE_TOTALSIZE | ATTR_FILE_ALLOCSIZE;

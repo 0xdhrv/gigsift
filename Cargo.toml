@@ -44,6 +44,10 @@ windows = "0.62"
 windows-core = "0.62"
 windows-sys = "0.61"
 
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 

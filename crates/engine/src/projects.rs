@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use gigsift_core::{ArtifactReport, Envelope, ProjectReport, ProjectsData};
 use gigsift_scanner::RootError;
@@ -19,12 +19,12 @@ pub fn find_projects(
     let root = resolve(root);
     let survey = survey(&root, analyzer)?;
 
-    let mut grouped: BTreeMap<String, (Rc<ProjectContext>, Vec<&Artifact>)> = BTreeMap::new();
+    let mut grouped: BTreeMap<String, (Arc<ProjectContext>, Vec<&Artifact>)> = BTreeMap::new();
     for artifact in &survey.artifacts {
         if let Some(project) = &artifact.project {
             grouped
                 .entry(path_string(&project.root))
-                .or_insert_with(|| (Rc::clone(project), Vec::new()))
+                .or_insert_with(|| (Arc::clone(project), Vec::new()))
                 .1
                 .push(artifact);
         }

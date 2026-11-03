@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
-use std::fs;
+use std::fs::{self, File};
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use gigsift_core::{CompletenessStatus, EntryKind, WarningCode};
-use gigsift_scanner::{Entry, Scan, ScanOptions, scan};
+use gigsift_scanner::{Entry, Scan, ScanOptions, inspect, newest_change, scan};
+use jiff::Timestamp;
 use tempfile::tempdir;
 
 const KIB_64: usize = 64 * 1024;
@@ -27,8 +28,71 @@ fn entry<'a>(scan: &'a Scan, path: &Path) -> &'a Entry {
         .unwrap_or_else(|| panic!("no entry for {}", path.display()))
 }
 
+fn set_modified(path: &Path, seconds: u64, nanoseconds: u32) -> SystemTime {
+    let time = SystemTime::UNIX_EPOCH + Duration::new(seconds, nanoseconds);
+    let file = File::options().write(true).open(path).unwrap();
+    file.set_modified(time).unwrap();
+    fs::metadata(path).unwrap().modified().unwrap()
+}
+
 fn has_warning(scan: &Scan, code: WarningCode) -> bool {
     scan.meta.warnings.iter().any(|w| w.code == code)
+}
+
+#[test]
+fn newest_change_finds_the_latest_file_and_stays_out_of_skipped_folders() {
+    let dir = tempdir().unwrap();
+    let older = write(dir.path(), "a/older.txt", 1);
+    let newest = write(dir.path(), "a/b/newest.txt", 1);
+    let skipped = write(dir.path(), "skip/later.txt", 1);
+    set_modified(&older, 1_000_000_000, 0);
+    let expected = set_modified(&newest, 1_500_000_000, 123_456_789);
+    set_modified(&skipped, 1_700_000_000, 0);
+
+    let found = newest_change(dir.path(), |path| path.ends_with("skip"));
+
+    // Folders were all just touched, so this only passes if they don't count.
+    assert_eq!(found, Some(Timestamp::try_from(expected).unwrap()));
+}
+
+#[test]
+fn newest_change_is_none_without_files() {
+    let dir = tempdir().unwrap();
+    fs::create_dir(dir.path().join("empty")).unwrap();
+
+    assert_eq!(newest_change(dir.path(), |_| false), None);
+}
+
+#[cfg(unix)]
+#[test]
+fn newest_change_counts_a_symlink_itself_and_not_its_target() {
+    let dir = tempdir().unwrap();
+    let outside = tempdir().unwrap();
+    let target = write(outside.path(), "target.txt", 1);
+    set_modified(&target, 1_700_000_000, 0);
+    let file = write(dir.path(), "file.txt", 1);
+    set_modified(&file, 1_000_000_000, 0);
+    let link = dir.path().join("link");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+
+    let found = newest_change(dir.path(), |_| false);
+
+    let link_time = fs::symlink_metadata(&link).unwrap().modified().unwrap();
+    assert_eq!(found, Some(Timestamp::try_from(link_time).unwrap()));
+}
+
+#[test]
+fn inspect_totals_match_a_scan_that_keeps_every_file() {
+    let dir = tempdir().unwrap();
+    write(dir.path(), "a/one.bin", KIB_64);
+    write(dir.path(), "a/b/two.bin", KIB_64);
+
+    let inspected = inspect(dir.path()).unwrap();
+    let scanned = scan_all(dir.path());
+
+    assert_eq!(inspected.logical_bytes, scanned.totals.logical_bytes);
+    assert_eq!(inspected.allocated_bytes, scanned.totals.allocated_bytes);
+    assert_eq!(inspected.exclusive_bytes, scanned.totals.exclusive_bytes);
 }
 
 #[test]

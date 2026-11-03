@@ -629,6 +629,7 @@ name = "gigsift-platform-macos"
 version = "0.2.2"
 dependencies = [
  "gigsift-core",
+ "jiff",
  "libc",
  "objc2-foundation",
 ]
@@ -649,6 +650,7 @@ version = "0.2.2"
 dependencies = [
  "gigsift-core",
  "globset",
+ "rayon",
  "serde",
  "tempfile",
  "thiserror",

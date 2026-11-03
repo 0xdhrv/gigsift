@@ -31,9 +31,8 @@ const WALK_THREADS: Option<usize> = Some(4);
 const WALK_THREADS: Option<usize> = None;
 
 static WALK_POOL: LazyLock<rayon::ThreadPool> = LazyLock::new(|| {
-    let default = rayon::current_num_threads();
     rayon::ThreadPoolBuilder::new()
-        .num_threads(WALK_THREADS.unwrap_or(default))
+        .num_threads(WALK_THREADS.unwrap_or(0))
         .thread_name(|index| format!("gigsift-walk-{index}"))
         .build()
         .expect("could not start scanner threads")
@@ -158,7 +157,11 @@ pub fn inspect(path: &Path) -> Result<Inspection, RootError> {
                 ..single_entry(PathKind::Directory)
             });
         }
-        let result = scan(path, &ScanOptions::default())?;
+        // Only totals are reported, so no individual file needs to be kept.
+        let options = ScanOptions {
+            keep_files_from_bytes: u64::MAX,
+        };
+        let result = scan(path, &options)?;
         return Ok(Inspection {
             logical_bytes: result.totals.logical_bytes,
             allocated_bytes: result.totals.allocated_bytes,
@@ -193,6 +196,83 @@ pub fn inspect(path: &Path) -> Result<Inspection, RootError> {
     })
 }
 
+/// When any file under `root` last changed, not entering directories `skip` rejects.
+/// Unreadable paths are passed over: this is a signal, not an accounting.
+pub fn newest_change(root: &Path, skip: impl Fn(&Path) -> bool) -> Option<Timestamp> {
+    let mut newest = None;
+    let mut pending = vec![root.to_owned()];
+    while let Some(dir) = pending.pop() {
+        #[cfg(target_os = "macos")]
+        if newest_in_bulk(&dir, &skip, &mut newest, &mut pending) {
+            continue;
+        }
+        newest_in_plain(&dir, &skip, &mut newest, &mut pending);
+    }
+    newest
+}
+
+/// Returns false if this volume can't read in bulk, so the caller falls back.
+#[cfg(target_os = "macos")]
+fn newest_in_bulk(
+    dir: &Path,
+    skip: &impl Fn(&Path) -> bool,
+    newest: &mut Option<Timestamp>,
+    pending: &mut Vec<PathBuf>,
+) -> bool {
+    use platform::BulkKind;
+
+    let result = platform::read_directory(dir, &mut |name, entry| match entry {
+        Ok(BulkKind::File { modified, .. } | BulkKind::Symlink { modified }) => {
+            *newest = (*newest).max(modified);
+        }
+        // Listing a placeholder folder would download it.
+        Ok(BulkKind::Directory { placeholder: true }) | Err(_) => {}
+        Ok(BulkKind::Directory { placeholder: false }) => {
+            let path = dir.join(name);
+            if !skip(&path) {
+                pending.push(path);
+            }
+        }
+        Ok(BulkKind::Other) => {
+            *newest = (*newest).max(modified_at(&dir.join(name)));
+        }
+    });
+    !result.is_err_and(|error| error.kind() == io::ErrorKind::Unsupported)
+}
+
+fn newest_in_plain(
+    dir: &Path,
+    skip: &impl Fn(&Path) -> bool,
+    newest: &mut Option<Timestamp>,
+    pending: &mut Vec<PathBuf>,
+) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if !meta.is_dir() {
+            *newest = (*newest).max(timestamp(&meta));
+            continue;
+        }
+        let path = entry.path();
+        if !skip(&path) {
+            pending.push(path);
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn modified_at(path: &Path) -> Option<Timestamp> {
+    timestamp(&fs::symlink_metadata(path).ok()?)
+}
+
+fn timestamp(meta: &Metadata) -> Option<Timestamp> {
+    Timestamp::try_from(meta.modified().ok()?).ok()
+}
+
 /// The OS's own Trash or Recycle Bin. See each platform crate for how it refuses.
 pub struct NativeRecycler;
 
@@ -214,10 +294,7 @@ pub fn file_identity(path: &Path, allocated_bytes: u64) -> Option<FileIdentity> 
     Some(FileIdentity {
         volume: id.volume,
         file: id.file,
-        modified_at: meta
-            .modified()
-            .ok()
-            .and_then(|t| Timestamp::try_from(t).ok()),
+        modified_at: timestamp(&meta),
         allocated_bytes,
     })
 }
@@ -368,10 +445,11 @@ impl Walker {
                 BulkKind::File {
                     logical_bytes,
                     probe,
+                    ..
                 } => {
                     batch.add_probed(id, || path.join(name), logical_bytes, probe, self.keep_from);
                 }
-                BulkKind::Symlink => batch.symlinks += 1,
+                BulkKind::Symlink { .. } => batch.symlinks += 1,
                 BulkKind::Directory { placeholder } => {
                     let entry_path = path.join(name);
                     let meta = match self.volume.map(|_| fs::symlink_metadata(&entry_path)) {

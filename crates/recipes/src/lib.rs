@@ -8,6 +8,7 @@
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Mutex;
 
 use gigsift_core::{Action, Category, Protection, RebuildCost, Risk};
 use globset::{Glob, GlobSet, GlobSetBuilder};
@@ -343,29 +344,41 @@ impl RecipeSet {
         platform: Platform,
         skip: &[PathBuf],
     ) -> Vec<(PathBuf, Match<'_>)> {
-        let mut found = Vec::new();
-        let mut pending = vec![root.to_owned()];
-        while let Some(dir) = pending.pop() {
-            let Ok(entries) = fs::read_dir(&dir) else {
-                continue;
-            };
-            for entry in entries.flatten() {
-                if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-                    continue;
-                }
-                let path = entry.path();
-                if entry.file_name() == ".git" || skip.contains(&path) {
-                    continue;
-                }
-                match self.match_dir(&path, platform) {
-                    Some(hit) => found.push((path, hit)),
-                    None if is_installed_packages(&entry.file_name()) => {}
-                    None => pending.push(path),
-                }
-            }
-        }
+        let found = Mutex::new(Vec::new());
+        rayon::scope(|scope| self.find_in(scope, root.to_owned(), platform, skip, &found));
+        let mut found = found.into_inner().expect("recipe walk thread panicked");
         found.sort_by(|a, b| a.0.cmp(&b.0));
         found
+    }
+
+    fn find_in<'s, 'r: 's>(
+        &'r self,
+        scope: &rayon::Scope<'s>,
+        dir: PathBuf,
+        platform: Platform,
+        skip: &'s [PathBuf],
+        found: &'s Mutex<Vec<(PathBuf, Match<'r>)>>,
+    ) {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                continue;
+            }
+            let path = entry.path();
+            if entry.file_name() == ".git" || skip.contains(&path) {
+                continue;
+            }
+            match self.match_dir(&path, platform) {
+                Some(hit) => found
+                    .lock()
+                    .expect("recipe walk thread panicked")
+                    .push((path, hit)),
+                None if is_installed_packages(&entry.file_name()) => {}
+                None => scope.spawn(move |s| self.find_in(s, path, platform, skip, found)),
+            }
+        }
     }
 }
 
