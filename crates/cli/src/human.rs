@@ -1,34 +1,34 @@
 //! Text output. Anything a script might read belongs in `--json` instead.
 
+use std::path::Path;
+
 use anstream::{print, println};
 use anstyle::Style;
 use gigsift_core::size::format_size;
 use gigsift_core::{
     ActionStatus, ApplyData, ApplyOutcome, BlockReason, Candidate, CandidatesData, ChangeKind,
     ChangesData, CompletenessStatus, EntryKind, Envelope, ExplainData, ForecastData, GitStatus,
-    HistoryData, NetworkCost, Outlook, PathKind, PlanData, ProjectReport, ProjectsData,
-    RebuildTime, Risk, SafetyVerdict, ScanData, SizedEntry, SnapshotData, TopData,
+    HistoryData, NetworkCost, Outlook, PathKind, PlanData, PlanItem, ProjectReport, ProjectsData,
+    RebuildTime, Risk, SafetyVerdict, ScanData, SizedEntry, SnapshotData, SpaceSample, TopData,
 };
 use jiff::Timestamp;
 
-use crate::ui::{self, ACCENT, BAD, GOOD, MUTED, STRONG, WARN, paint};
+use crate::chart::{self, Point};
+use crate::motion;
+use crate::ui::{self, ACCENT, BAD, Figure, GOOD, MUTED, STRONG, Stat, WARN, paint};
+
+const SECONDS_PER_DAY: f64 = 86_400.0;
 
 pub fn print_scan(report: &Envelope<ScanData>) {
     let totals = &report.data.totals;
     ui::header("scan", &ui::home(&report.data.root));
-    ui::field(
-        "On disk",
-        paint(STRONG, format_size(totals.allocated_bytes)),
-    );
-    ui::field("Logical", format_size(totals.logical_bytes));
-    ui::field(
-        "Contents",
-        ui::joined([
-            format!("{} files", ui::count(totals.files)),
-            format!("{} folders", ui::count(totals.directories)),
-            format!("{} symlinks", ui::count(totals.symlinks)),
-        ]),
-    );
+    ui::stats(&[
+        Stat::new("On disk", Figure::Bytes(totals.allocated_bytes)).styled(ui::brand(0.25).bold()),
+        Stat::new("Logical", Figure::Bytes(totals.logical_bytes)),
+        Stat::new("Files", Figure::Count(totals.files)),
+        Stat::new("Folders", Figure::Count(totals.directories)),
+        Stat::new("Symlinks", Figure::Count(totals.symlinks)),
+    ]);
     if totals.hard_link_duplicates > 0 {
         ui::field(
             "Hard links",
@@ -45,7 +45,12 @@ pub fn print_scan(report: &Envelope<ScanData>) {
         );
     }
     ui::heading("Largest folders", "");
-    print_entries(&report.data.largest_directories, &report.data.root);
+    print_entries(
+        &report.data.largest_directories,
+        &report.data.root,
+        Some(totals.allocated_bytes),
+        true,
+    );
     print_trust(report);
 }
 
@@ -57,7 +62,12 @@ pub fn print_top(report: &Envelope<TopData>) {
             format_size(report.data.min_allocated_bytes)
         ));
     } else {
-        print_entries(&report.data.entries, &report.data.root);
+        let root = Path::new(&report.data.root);
+        let total =
+            report.data.entries.iter().find_map(|entry| {
+                (Path::new(&entry.path) == root).then_some(entry.allocated_bytes)
+            });
+        print_entries(&report.data.entries, &report.data.root, total, false);
     }
     if report.data.truncated > 0 {
         ui::note(format!(
@@ -146,16 +156,18 @@ pub fn print_explain(report: &Envelope<ExplainData>) {
 pub fn print_projects(report: &Envelope<ProjectsData>) {
     let data = &report.data;
     ui::header("projects", &ui::home(&data.root));
+    let total: u64 = data
+        .projects
+        .iter()
+        .map(|project| project.reclaimable_bytes_estimate)
+        .sum();
     if data.projects.is_empty() {
         ui::note("No projects with reclaimable artifacts here.");
     } else {
-        let total: u64 = data
-            .projects
-            .iter()
-            .map(|project| project.reclaimable_bytes_estimate)
-            .sum();
-        ui::field("Projects", ui::count(data.projects.len() as u64));
-        ui::field("Reclaimable", paint(STRONG, format_size(total)));
+        ui::stats(&[
+            Stat::new("Reclaimable", Figure::Bytes(total)).styled(ui::brand(0.25).bold()),
+            Stat::new("Projects", Figure::Count(data.projects.len() as u64)),
+        ]);
     }
     let largest = data
         .projects
@@ -166,9 +178,10 @@ pub fn print_projects(report: &Envelope<ProjectsData>) {
     for project in &data.projects {
         println!();
         println!(
-            "  {}  {}{}",
+            "  {}  {}{}{}",
             ui::size(project.reclaimable_bytes_estimate),
-            ui::brand_bar(project.reclaimable_bytes_estimate, largest),
+            ui::heat_bar(project.reclaimable_bytes_estimate, largest),
+            ui::share(project.reclaimable_bytes_estimate, Some(total)),
             ui::leaf(&ui::home(&project.root))
         );
         print_project_details(project);
@@ -233,20 +246,19 @@ fn days_ago(time: Timestamp) -> String {
 pub fn print_plan(report: &Envelope<PlanData>) {
     let data = &report.data;
     ui::header("clean plan", &ui::home(&data.root));
-    ui::field("Plan", &data.plan_id);
     let fill = if data.target_met { GOOD } else { WARN };
-    ui::field(
-        "Found",
-        format!(
-            "{}{} of {} target",
-            ui::meter(data.reclaimable_bytes_estimate, data.target_bytes, fill),
-            paint(STRONG, format_size(data.reclaimable_bytes_estimate)),
-            format_size(data.target_bytes)
-        ),
-    );
+    let found = data.reclaimable_bytes_estimate;
+    let mut stats = vec![
+        Stat::new("Found", Figure::Bytes(found)).styled(fill.bold()),
+        Stat::new("Target", Figure::Bytes(data.target_bytes)),
+    ];
     if !data.target_met {
-        ui::field("Short by", paint(WARN, format_size(data.shortfall_bytes)));
+        stats.push(Stat::new("Short by", Figure::Bytes(data.shortfall_bytes)).styled(WARN));
     }
+    ui::stats(&stats);
+    print_gauge(found, data.target_bytes, fill);
+    ui::field("Plan", &data.plan_id);
+    print_breakdown(&data.items);
     if !data.items.is_empty() {
         ui::heading("Would move to Trash", items(data.items.len()));
         print_candidates_by_advice(data.items.iter().map(|item| &item.candidate));
@@ -295,6 +307,47 @@ pub fn print_apply_hint(plan: &PlanData) {
     }
 }
 
+/// How full something is, for a terminal. Cards already gave the numbers.
+fn print_gauge(value: u64, max: u64, style: Style) {
+    if ui::rich() {
+        motion::reveal(|progress| {
+            vec![format!(
+                "  {}{}",
+                ui::meter(ui::scaled(value, progress), max, style),
+                ui::share(value, Some(max))
+            )]
+        });
+    }
+}
+
+/// What a plan is made of, by the recipe that matched it.
+fn print_breakdown(items: &[PlanItem]) {
+    if !ui::colored() || items.is_empty() {
+        return;
+    }
+    let mut parts: Vec<(&str, u64)> = grouped(items, |item| &item.recipe_id)
+        .into_iter()
+        .map(|(recipe, group)| {
+            let bytes = group
+                .iter()
+                .map(|item| item.candidate.reclaimable_bytes_estimate)
+                .sum();
+            (recipe.as_str(), bytes)
+        })
+        .collect();
+    parts.sort_by_key(|part| std::cmp::Reverse(part.1));
+    let total = parts.iter().map(|part| part.1).sum();
+    parts.truncate(ui::SERIES_COUNT);
+    let sizes: Vec<u64> = parts.iter().map(|part| part.1).collect();
+    let legend = ui::legend(&parts);
+    println!();
+    motion::reveal(|progress| {
+        let mut rows = vec![ui::stacked(&sizes, total, progress)];
+        rows.extend(legend.iter().cloned());
+        rows
+    });
+}
+
 fn items(count: usize) -> String {
     match count {
         1 => "1 item".to_owned(),
@@ -305,10 +358,14 @@ fn items(count: usize) -> String {
 pub fn print_candidates(report: &Envelope<CandidatesData>) {
     let data = &report.data;
     ui::header("clean candidates", &ui::home(&data.root));
-    ui::field(
-        "Recoverable",
-        paint(STRONG, format_size(data.reclaimable_bytes_estimate)),
-    );
+    ui::stats(&[
+        Stat::new(
+            "Recoverable",
+            Figure::Bytes(data.reclaimable_bytes_estimate),
+        )
+        .styled(ui::brand(0.25).bold()),
+        Stat::new("Items", Figure::Count(data.candidates.len() as u64)),
+    ]);
     print_candidates_by_advice(data.candidates.iter());
     print_trust(report);
 }
@@ -380,11 +437,10 @@ pub fn print_cancelled() {
 pub fn print_snapshot(report: &Envelope<SnapshotData>) {
     let data = &report.data;
     ui::header("snapshot", &ui::home(&data.root));
-    ui::field("On disk", paint(STRONG, format_size(data.allocated_bytes)));
-    ui::field(
-        "Recorded",
-        format!("{} folders", ui::count(data.directories_recorded)),
-    );
+    ui::stats(&[
+        Stat::new("On disk", Figure::Bytes(data.allocated_bytes)).styled(ui::brand(0.25).bold()),
+        Stat::new("Folders", Figure::Count(data.directories_recorded)),
+    ]);
     print_trust(report);
 }
 
@@ -392,11 +448,13 @@ pub fn print_changes(report: &Envelope<ChangesData>) {
     let data = &report.data;
     ui::header("changes", &ui::home(&data.root));
     if let (Some(baseline), Some(delta)) = (&data.baseline, data.allocated_delta_bytes) {
-        ui::field("Since", baseline.taken_at.strftime("%Y-%m-%d %H:%M"));
-        ui::field(
-            "Change",
-            paint(delta_style(delta).bold(), signed_size(delta)),
-        );
+        ui::stats(&[
+            Stat::new("Change", Figure::Text(signed_size(delta))).styled(delta_style(delta).bold()),
+            Stat::new(
+                "Since",
+                Figure::Text(baseline.taken_at.strftime("%Y-%m-%d %H:%M").to_string()),
+            ),
+        ]);
     }
     if !data.changes.is_empty() {
         println!();
@@ -407,17 +465,27 @@ pub fn print_changes(report: &Envelope<ChangesData>) {
         .map(|change| change.delta_bytes.unsigned_abs())
         .max()
         .unwrap_or(0);
-    for change in &data.changes {
-        let about = if change.approximate { "~" } else { " " };
-        let style = delta_style(change.delta_bytes);
-        println!(
-            "  {}{}  {}{}",
-            paint(MUTED, about),
-            paint(style, format!("{:>10}", signed_size(change.delta_bytes))),
-            ui::bar(change.delta_bytes.unsigned_abs(), largest, style),
-            ui::leaf(&ui::under(&change.path, &data.root))
-        );
-    }
+    motion::reveal(|progress| {
+        data.changes
+            .iter()
+            .map(|change| {
+                let about = if change.approximate { "~" } else { " " };
+                let style = delta_style(change.delta_bytes);
+                format!(
+                    "  {}{}  {}{}",
+                    paint(MUTED, about),
+                    paint(style, format!("{:>10}", signed_size(change.delta_bytes))),
+                    ui::diverging(
+                        ui::scaled(change.delta_bytes.unsigned_abs(), progress),
+                        change.delta_bytes < 0,
+                        largest,
+                        style
+                    ),
+                    ui::leaf(&ui::under(&change.path, &data.root))
+                )
+            })
+            .collect()
+    });
     if data.truncated > 0 {
         ui::note(format!(
             "...and {} more. Raise --limit.",
@@ -437,7 +505,7 @@ fn signed_size(delta: i64) -> String {
     format!("{sign}{}", format_size(delta.unsigned_abs()))
 }
 
-pub fn print_forecast(data: &ForecastData) {
+pub fn print_forecast(data: &ForecastData, samples: &[SpaceSample]) {
     let total = data.volume.total_bytes;
     let used = total.saturating_sub(data.volume.available_bytes);
     let percent = u128::from(used) * 100 / u128::from(total.max(1));
@@ -447,18 +515,20 @@ pub fn print_forecast(data: &ForecastData) {
         _ => GOOD,
     };
     ui::header("forecast", "");
-    ui::field(
-        "Used",
-        format!("{}{percent}%", ui::meter(used, total, fill)),
-    );
-    ui::field(
-        "Free",
-        format!(
-            "{} of {}",
-            paint(STRONG, format_size(data.volume.available_bytes)),
-            format_size(total)
-        ),
-    );
+    let mut stats = vec![
+        Stat::new("Used", Figure::Text(format!("{percent}%"))).styled(fill.bold()),
+        Stat::new("Free", Figure::Bytes(data.volume.available_bytes)),
+        Stat::new("Disk", Figure::Bytes(total)),
+    ];
+    if data.outlook == Outlook::Filling {
+        let best = data.days_until_full.unwrap_or(0.0);
+        stats.push(Stat::new(
+            "Full in",
+            Figure::Text(format!("About {best:.0} days")),
+        ));
+    }
+    ui::stats(&stats);
+    print_gauge(used, total, fill);
     match data.outlook {
         Outlook::InsufficientData => {
             println!();
@@ -481,14 +551,173 @@ pub fn print_forecast(data: &ForecastData) {
             let used = data.bytes_used_per_day.unwrap_or(0.0).max(0.0) as u64;
             ui::field("Using", format!("About {} a day", format_size(used)));
             let low = data.days_until_full_low.unwrap_or(0.0);
-            let best = data.days_until_full.unwrap_or(0.0);
             let range = data.days_until_full_high.map_or_else(
                 || format!("{low:.0} days or later, and it may not fill at all"),
                 |high| format!("{low:.0} to {high:.0} days"),
             );
-            ui::field("Full in", paint(STRONG, format!("About {best:.0} days")));
             ui::field("Range", range);
         }
+    }
+    print_usage_chart(data, samples);
+}
+
+/// Disk use over time, with the trend carried forward faintly.
+fn print_usage_chart(data: &ForecastData, samples: &[SpaceSample]) {
+    let Some(usage) = UsageChart::new(data, samples) else {
+        return;
+    };
+    if ui::rich() {
+        println!();
+        motion::reveal(|progress| usage.rows(progress));
+    }
+}
+
+/// Fractions of the disk over time, in seconds.
+struct UsageChart {
+    history: Vec<(f64, f64)>,
+    projection: Option<(f64, f64)>,
+    /// `(lowest, highest)` shown.
+    range: (f64, f64),
+}
+
+impl UsageChart {
+    const HEIGHT: usize = 8;
+    const GUTTER: usize = 9;
+    /// Past this many times the recorded span, a projection is just a guess.
+    const HORIZON: f64 = 2.0;
+
+    fn new(data: &ForecastData, samples: &[SpaceSample]) -> Option<Self> {
+        let total = data.volume.total_bytes.max(1) as f64;
+        let used_share = |available: u64| 1.0 - available as f64 / total;
+        let mut history: Vec<(f64, f64)> = samples
+            .iter()
+            .map(|sample| {
+                let seconds = sample.taken_at.as_second() as f64;
+                (seconds, used_share(sample.available_bytes))
+            })
+            .collect();
+        history.push((
+            Timestamp::now().as_second() as f64,
+            used_share(data.volume.available_bytes),
+        ));
+        let (first, last) = (*history.first()?, *history.last()?);
+        let span = last.0 - first.0;
+        if history.len() < 3 || span <= 0.0 {
+            return None;
+        }
+        let projection = data
+            .days_until_full
+            .filter(|_| data.outlook == Outlook::Filling);
+        let projection = projection.map(|days| {
+            let seconds = (days * SECONDS_PER_DAY).min(span * Self::HORIZON);
+            let per_second = data.bytes_used_per_day.unwrap_or(0.0) / total / SECONDS_PER_DAY;
+            (last.0 + seconds, (last.1 + per_second * seconds).min(1.0))
+        });
+        let levels = || {
+            history
+                .iter()
+                .map(|point| point.1)
+                .chain(projection.map(|end| end.1))
+        };
+        let (low, high) = (levels().fold(1.0, f64::min), levels().fold(0.0, f64::max));
+        let margin = ((high - low) * 0.15).max(0.005);
+        let range = ((low - margin).max(0.0), (high + margin).min(1.0));
+        Some(Self {
+            history,
+            projection,
+            range,
+        })
+    }
+
+    fn width() -> usize {
+        ui::window().0.saturating_sub(Self::GUTTER + 3).min(64)
+    }
+
+    fn point(&self, (seconds, share): (f64, f64)) -> Point {
+        let start = self.history.first().map_or(0.0, |point| point.0);
+        let end = self.projection.or(self.history.last().copied());
+        let end = end.map_or(1.0, |point| point.0);
+        let (low, high) = self.range;
+        (
+            ((seconds - start) / (end - start)) as f32,
+            ((share - low) / (high - low)) as f32,
+        )
+    }
+
+    fn rows(&self, progress: f32) -> Vec<String> {
+        let width = Self::width();
+        let history: Vec<Point> = self
+            .history
+            .iter()
+            .map(|point| self.point(*point))
+            .collect();
+        let projection = self.projection.map(|point| self.point(point));
+        let plot = chart::area(&history, projection, width, Self::HEIGHT, progress);
+        let last_row = plot.len() - 1;
+        let (low, high) = self.range;
+        let mut rows: Vec<String> = plot
+            .into_iter()
+            .enumerate()
+            .map(|(row, line)| {
+                let label = match row {
+                    0 => percent_label(high, high - low),
+                    _ if row == last_row => percent_label(low, high - low),
+                    _ => String::new(),
+                };
+                let tick = if label.is_empty() { "│" } else { "┤" };
+                format!(
+                    "{}{} {line}",
+                    paint(MUTED, format!("{label:>width$} ", width = Self::GUTTER - 1)),
+                    paint(MUTED, tick)
+                )
+            })
+            .collect();
+        rows.push(paint(
+            MUTED,
+            format!(
+                "{:width$}└{}",
+                "",
+                "─".repeat(width + 1),
+                width = Self::GUTTER
+            ),
+        ));
+        rows.push(self.dates(width));
+        rows
+    }
+
+    /// The first date, today, and the end of the projection, under where they fall.
+    fn dates(&self, width: usize) -> String {
+        let date = |seconds: f64| {
+            Timestamp::from_second(seconds as i64)
+                .map(|time| time.strftime("%b %-d").to_string())
+                .unwrap_or_default()
+        };
+        let start = self.history.first().map_or(0.0, |point| point.0);
+        let now = self.history.last().map_or(0.0, |point| point.0);
+        let mut line = date(start);
+        let today = (self.point((now, 0.0)).0 * width as f32) as usize;
+        if let Some((end, _)) = self.projection {
+            let right = date(end);
+            line.push_str(&" ".repeat(today.saturating_sub(line.len() + 2).max(2)));
+            line.push_str("today");
+            let gap = (width + 1).saturating_sub(line.len() + right.len()).max(2);
+            line.push_str(&" ".repeat(gap));
+            line.push_str(&right);
+        } else {
+            let gap = (width + 1).saturating_sub(line.len() + 5).max(2);
+            line.push_str(&" ".repeat(gap));
+            line.push_str("today");
+        }
+        paint(MUTED, format!("{:width$} {line}", "", width = Self::GUTTER))
+    }
+}
+
+/// Close-up charts need the decimal to tell their two ends apart.
+fn percent_label(share: f64, range: f64) -> String {
+    if range < 0.05 {
+        format!("{:.1}%", share * 100.0)
+    } else {
+        format!("{:.0}%", share * 100.0)
     }
 }
 
@@ -497,6 +726,20 @@ pub fn print_history(data: &HistoryData) {
     ui::header("history", "");
     if data.actions.is_empty() {
         ui::note("gigsift has not done anything yet.");
+    } else {
+        let moved = data
+            .actions
+            .iter()
+            .filter(|action| action.status == ActionStatus::Moved);
+        let (count, bytes) = moved.fold((0, 0), |(count, bytes), action| {
+            (count + 1, bytes + action.moved_bytes)
+        });
+        ui::stats(&[
+            Stat::new("Moved", Figure::Bytes(bytes)).styled(ui::brand(0.25).bold()),
+            Stat::new("Items", Figure::Count(count)),
+            Stat::new("Actions", Figure::Count(data.actions.len() as u64)),
+        ]);
+        println!();
     }
     for action in &data.actions {
         let (style, status) = action_status(action.status);
@@ -663,24 +906,66 @@ fn rebuild(command: &str, time: RebuildTime, network: NetworkCost) -> String {
     ])
 }
 
-fn print_entries(entries: &[SizedEntry], root: &str) {
+/// With `split`, a stacked bar shows how the folders divide up the whole.
+fn print_entries(entries: &[SizedEntry], root: &str, total: Option<u64>, split: bool) {
     let largest = entries
         .iter()
         .map(|entry| entry.allocated_bytes)
         .max()
         .unwrap_or(0);
-    for entry in entries {
-        let marker = match entry.kind {
-            EntryKind::Directory => "/",
-            EntryKind::File => "",
-        };
-        println!(
-            "  {}  {}{}",
-            ui::size(entry.allocated_bytes),
-            ui::brand_bar(entry.allocated_bytes, largest),
-            ui::leaf(&format!("{}{marker}", ui::under(&entry.path, root)))
-        );
+    let parts = if split {
+        outermost(entries, root)
+    } else {
+        Vec::new()
+    };
+    let sizes: Vec<u64> = parts
+        .iter()
+        .map(|part| entries[*part].allocated_bytes)
+        .collect();
+    let split = split && ui::colored();
+    motion::reveal(|progress| {
+        let mut rows = Vec::with_capacity(entries.len() + 2);
+        if split {
+            rows.push(String::new());
+            rows.push(ui::stacked(&sizes, total.unwrap_or(largest), progress));
+            rows.push(String::new());
+        }
+        rows.extend(entries.iter().enumerate().map(|(index, entry)| {
+            let marker = match entry.kind {
+                EntryKind::Directory => "/",
+                EntryKind::File => "",
+            };
+            let swatch = if split {
+                ui::swatch(parts.iter().position(|part| *part == index))
+            } else {
+                String::new()
+            };
+            format!(
+                "  {}  {swatch}{}{}{}",
+                ui::size(entry.allocated_bytes),
+                ui::heat_bar(ui::scaled(entry.allocated_bytes, progress), largest),
+                ui::share(entry.allocated_bytes, total),
+                ui::leaf(&format!("{}{marker}", ui::under(&entry.path, root)))
+            )
+        }));
+        rows
+    });
+}
+
+/// Entries that don't overlap, because nested folders would count twice in a whole.
+/// Parents are at least as large as their children, so they come first.
+fn outermost(entries: &[SizedEntry], root: &str) -> Vec<usize> {
+    let mut chosen: Vec<usize> = Vec::new();
+    for (index, entry) in entries.iter().enumerate() {
+        let path = Path::new(&entry.path);
+        let nested = chosen
+            .iter()
+            .any(|parent| path.starts_with(&entries[*parent].path));
+        if path != Path::new(root) && !nested && chosen.len() < ui::SERIES_COUNT {
+            chosen.push(index);
+        }
     }
+    chosen
 }
 
 /// Keeps the numbers honest: a partial scan must say so next to them.

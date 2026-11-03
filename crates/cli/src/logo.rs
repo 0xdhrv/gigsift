@@ -4,7 +4,6 @@
 //! finished wordmark, so clap prints the help over it without a flicker. The cursor
 //! stays visible below the logo, which leaves nothing to restore after Ctrl-C.
 
-use std::env;
 use std::thread;
 use std::time::Duration;
 
@@ -12,6 +11,7 @@ use anstream::stream::RawStream;
 use anstream::{AutoStream, ColorChoice};
 use anstyle::Style;
 
+use crate::motion;
 use crate::ui::{self, paint};
 
 const ART: [&str; ROWS] = [
@@ -43,10 +43,8 @@ pub fn wordmark() -> String {
 
 /// Plays on a color terminal only, so scripts and pagers never wait for it.
 pub fn sift(stream: impl RawStream) {
-    let wanted = !cfg!(windows)
-        && env::var_os("CI").is_none()
-        && env::var_os("GIGSIFT_NO_ANIMATION").is_none();
-    if wanted && stream.is_terminal() && AutoStream::choice(&stream) != ColorChoice::Never {
+    if motion::wanted() && stream.is_terminal() && AutoStream::choice(&stream) != ColorChoice::Never
+    {
         play(stream);
     }
 }

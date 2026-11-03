@@ -1,5 +1,7 @@
+mod chart;
 mod human;
 mod logo;
+mod motion;
 mod ui;
 
 use std::io::{self, IsTerminal, Write};
@@ -350,7 +352,7 @@ fn run(command: Command) -> Result<ExitCode> {
 
 fn run_scan(path: Option<PathBuf>, json: bool) -> Result<()> {
     let root = resolve_root(path)?;
-    let envelope = ui::working("Scanning", json, || storage_summary(&root))?;
+    let envelope = motion::working("Scanning", json, || storage_summary(&root))?;
     if json {
         print_json(&envelope)
     } else {
@@ -361,7 +363,7 @@ fn run_scan(path: Option<PathBuf>, json: bool) -> Result<()> {
 
 fn run_top(path: Option<PathBuf>, min_size: u64, limit: usize, json: bool) -> Result<()> {
     let root = resolve_root(path)?;
-    let envelope = ui::working("Scanning", json, || largest_entries(&root, min_size, limit))?;
+    let envelope = motion::working("Scanning", json, || largest_entries(&root, min_size, limit))?;
     if json {
         print_json(&envelope)
     } else {
@@ -373,7 +375,7 @@ fn run_top(path: Option<PathBuf>, min_size: u64, limit: usize, json: bool) -> Re
 fn run_explain(path: &Path, active_within: u64, json: bool) -> Result<()> {
     let recipes = RecipeSet::builtin();
     let analyzer = Analyzer::for_user(&recipes, active_within);
-    let envelope = ui::working("Checking", json, || explain(path, &analyzer))?;
+    let envelope = motion::working("Checking", json, || explain(path, &analyzer))?;
     if json {
         print_json(&envelope)
     } else {
@@ -391,7 +393,7 @@ fn run_projects(
     let root = resolve_root(path)?;
     let recipes = RecipeSet::builtin();
     let analyzer = Analyzer::for_user(&recipes, active_within);
-    let envelope = ui::working("Looking for projects", json, || {
+    let envelope = motion::working("Looking for projects", json, || {
         find_projects(&root, stale, &analyzer)
     })?;
     if json {
@@ -406,7 +408,7 @@ fn run_clean_candidates(path: Option<PathBuf>, active_within: u64, json: bool) -
     let root = resolve_root(path)?;
     let recipes = RecipeSet::builtin();
     let analyzer = Analyzer::for_user(&recipes, active_within);
-    let envelope = ui::working("Looking for candidates", json, || {
+    let envelope = motion::working("Looking for candidates", json, || {
         find_candidates(&root, &analyzer)
     })?;
     if json {
@@ -427,7 +429,7 @@ fn run_clean_plan(
     let root = resolve_root(path)?;
     let recipes = RecipeSet::builtin();
     let analyzer = Analyzer::for_user(&recipes, active_within);
-    let envelope = ui::working("Planning", json, || {
+    let envelope = motion::working("Planning", json, || {
         create_plan(&root, target, profile, &analyzer)
     })?;
     Store::for_user()?.save_plan(&envelope)?;
@@ -466,7 +468,7 @@ fn run_clean_apply(plan_id: &str, yes: bool, json: bool) -> Result<ExitCode> {
 
     let recipes = RecipeSet::builtin();
     let analyzer = Analyzer::for_user(&recipes, plan.data.active_within_seconds);
-    let envelope = ui::working("Rechecking and moving", json, || {
+    let envelope = motion::working("Rechecking and moving", json, || {
         apply_plan(&plan, &analyzer, &NativeRecycler, &mut store)
     })?;
     if json {
@@ -492,7 +494,7 @@ fn confirmed(plan: &Envelope<PlanData>) -> Result<bool> {
 
 fn run_snapshot(path: Option<PathBuf>, json: bool) -> Result<()> {
     let root = resolve_root(path)?;
-    let (snapshot, envelope) = ui::working("Recording", json, || {
+    let (snapshot, envelope) = motion::working("Recording", json, || {
         take_snapshot(&root, SNAPSHOT_MIN_DIRECTORY_BYTES)
     })?;
     Store::for_user()?.save_snapshot(&snapshot)?;
@@ -508,7 +510,7 @@ fn run_changes(path: Option<PathBuf>, since: u64, limit: usize, json: bool) -> R
     let root = resolve_root(path)?;
     let wanted = Timestamp::now() - SignedDuration::from_secs(since as i64);
     let baseline = Store::for_user()?.baseline_for(&snapshot_key(&root), wanted)?;
-    let envelope = ui::working("Comparing", json, || {
+    let envelope = motion::working("Comparing", json, || {
         compare_with_snapshot(&root, baseline.as_ref(), since, limit)
     })?;
     if json {
@@ -531,7 +533,7 @@ fn run_forecast(path: Option<PathBuf>, json: bool) -> Result<()> {
     if json {
         print_json(&response)
     } else {
-        human::print_forecast(&response.data);
+        human::print_forecast(&response.data, &samples);
         Ok(())
     }
 }

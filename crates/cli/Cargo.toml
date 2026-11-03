@@ -24,6 +24,7 @@ gigsift-store.workspace = true
 jiff.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+terminal_size.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
