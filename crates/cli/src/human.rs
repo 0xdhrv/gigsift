@@ -182,7 +182,7 @@ pub fn print_projects(report: &Envelope<ProjectsData>) {
             ui::size(project.reclaimable_bytes_estimate),
             ui::heat_bar(project.reclaimable_bytes_estimate, largest),
             ui::share(project.reclaimable_bytes_estimate, Some(total)),
-            ui::leaf(&ui::home(&project.root))
+            ui::link(&project.root, ui::leaf(&ui::home(&project.root)))
         );
         print_project_details(project);
     }
@@ -230,7 +230,7 @@ fn print_project_details(project: &ProjectReport) {
             "{} {}  {}{shared}{state}",
             paint(MUTED, branch),
             ui::size(artifact.reclaimable_bytes_estimate),
-            ui::under(&artifact.path, &project.root)
+            ui::link(&artifact.path, ui::under(&artifact.path, &project.root))
         ));
     }
 }
@@ -280,7 +280,7 @@ pub fn print_plan(report: &Envelope<PlanData>) {
                 println!(
                     "  {}  {}",
                     ui::size(blocked.allocated_bytes),
-                    ui::leaf(&ui::home(&blocked.path))
+                    ui::link(&blocked.path, ui::leaf(&ui::home(&blocked.path)))
                 );
             }
         }
@@ -380,7 +380,7 @@ pub fn print_apply(report: &Envelope<ApplyData>) {
             ApplyOutcome::Moved => {
                 println!(
                     "  {}  {}  {path}",
-                    paint(GOOD, "✓ Moved  "),
+                    paint(GOOD, format!("{} Moved  ", moved_mark())),
                     ui::size(result.moved_bytes)
                 );
             }
@@ -389,7 +389,11 @@ pub fn print_apply(report: &Envelope<ApplyData>) {
                 print_reasons(REASON_INDENT, &result.changed, &result.blocked_by);
             }
             ApplyOutcome::Failed => {
-                println!("  {}  {:9}  {path}", paint(BAD, "✗ Failed "), "");
+                println!(
+                    "  {}  {:9}  {path}",
+                    paint(BAD, format!("{} Failed ", failed_mark())),
+                    ""
+                );
                 if let Some(error) = &result.error {
                     println!("{:REASON_INDENT$}{}", "", paint(BAD, error));
                 }
@@ -481,7 +485,7 @@ pub fn print_changes(report: &Envelope<ChangesData>) {
                         largest,
                         style
                     ),
-                    ui::leaf(&ui::under(&change.path, &data.root))
+                    ui::link(&change.path, ui::leaf(&ui::under(&change.path, &data.root)))
                 )
             })
             .collect()
@@ -764,13 +768,22 @@ fn print_reasons(indent: usize, changed: &[ChangeKind], blocked_by: &[BlockReaso
     }
 }
 
-fn action_status(status: ActionStatus) -> (Style, &'static str) {
-    match status {
-        ActionStatus::Interrupted => (BAD, "! interrupted"),
-        ActionStatus::Moved => (GOOD, "✓ moved"),
-        ActionStatus::Skipped => (WARN, "– skipped"),
-        ActionStatus::Failed => (BAD, "✗ failed"),
-    }
+fn action_status(status: ActionStatus) -> (Style, String) {
+    let (style, mark, word) = match status {
+        ActionStatus::Interrupted => (BAD, "!", "interrupted"),
+        ActionStatus::Moved => (GOOD, moved_mark(), "moved"),
+        ActionStatus::Skipped => (WARN, "–", "skipped"),
+        ActionStatus::Failed => (BAD, failed_mark(), "failed"),
+    };
+    (style, format!("{mark} {word}"))
+}
+
+fn moved_mark() -> &'static str {
+    ui::glyph("✓", "√")
+}
+
+fn failed_mark() -> &'static str {
+    ui::glyph("✗", "x")
 }
 
 fn change_kind(kind: ChangeKind) -> &'static str {
@@ -806,7 +819,7 @@ fn print_candidates_by_advice<'a>(candidates: impl Iterator<Item = &'a Candidate
             println!(
                 "  {}  {}",
                 ui::size(candidate.reclaimable_bytes_estimate),
-                ui::leaf(&ui::home(&candidate.path))
+                ui::link(&candidate.path, ui::leaf(&ui::home(&candidate.path)))
             );
         }
     }
@@ -945,7 +958,10 @@ fn print_entries(entries: &[SizedEntry], root: &str, total: Option<u64>, split: 
                 ui::size(entry.allocated_bytes),
                 ui::heat_bar(ui::scaled(entry.allocated_bytes, progress), largest),
                 ui::share(entry.allocated_bytes, total),
-                ui::leaf(&format!("{}{marker}", ui::under(&entry.path, root)))
+                ui::link(
+                    &entry.path,
+                    ui::leaf(&format!("{}{marker}", ui::under(&entry.path, root)))
+                )
             )
         }));
         rows

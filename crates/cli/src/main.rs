@@ -2,6 +2,7 @@ mod chart;
 mod human;
 mod logo;
 mod motion;
+mod terminal;
 mod ui;
 
 use std::io::{self, IsTerminal, Write};

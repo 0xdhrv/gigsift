@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use anstream::{eprint, print, println};
 use anstyle::Style;
 
+use crate::terminal;
 use crate::ui::{self, MUTED, paint};
 
 const REVEAL_FRAMES: usize = 10;
@@ -21,6 +22,8 @@ const SPINNER: [&str; 35] = [
     "⠁", "⠂", "⠄", "⡀", "⡈", "⡐", "⡠", "⣀", "⣁", "⣂", "⣄", "⣌", "⣔", "⣤", "⣥", "⣦", "⣮", "⣶", "⣷",
     "⣿", "⡿", "⠿", "⢟", "⠟", "⡛", "⠛", "⠫", "⢋", "⠋", "⠍", "⡉", "⠉", "⠑", "⠡", "⢁",
 ];
+/// The same sand in shades, for fonts with no braille.
+const LEGACY_SPINNER: [&str; 6] = ["░", "▒", "▓", "█", "▓", "▒"];
 /// Letters this close to the moving highlight light up.
 const SHIMMER_REACH: usize = 1;
 /// How far the highlight travels past the label before it comes round again.
@@ -106,7 +109,8 @@ fn spin(label: &str, done: &AtomicBool) {
         return;
     }
     let moving = wanted();
-    for (tick, frame) in (0..).zip(SPINNER.iter().cycle()) {
+    let frames = spinner();
+    for (tick, frame) in (0..).zip(frames.iter().cycle()) {
         if done.load(Ordering::Acquire) {
             break;
         }
@@ -118,7 +122,7 @@ fn spin(label: &str, done: &AtomicBool) {
         };
         eprint!(
             "\r  {} {text}  {}",
-            paint(ui::brand(ramp_at(tick)), frame),
+            paint(ui::brand(ramp_at(tick, frames.len())), frame),
             paint(MUTED, format!("{seconds}s"))
         );
         thread::park_timeout(Duration::from_millis(80));
@@ -127,9 +131,16 @@ fn spin(label: &str, done: &AtomicBool) {
     eprint!("\r{:width$}\r", "", width = label.len() + 16);
 }
 
-fn ramp_at(tick: usize) -> f32 {
-    let at = tick % SPINNER.len();
-    at as f32 / SPINNER.len() as f32
+fn spinner() -> &'static [&'static str] {
+    if terminal::full_glyphs() {
+        &SPINNER
+    } else {
+        &LEGACY_SPINNER
+    }
+}
+
+fn ramp_at(tick: usize, frames: usize) -> f32 {
+    (tick % frames) as f32 / frames as f32
 }
 
 /// A highlight sweeping across the label, which works in plain ANSI too because
@@ -161,6 +172,16 @@ mod tests {
     }
 
     #[test]
+    fn the_fallback_spinner_is_all_in_the_console_font() {
+        let glyphs = LEGACY_SPINNER.concat();
+        assert!(
+            glyphs
+                .chars()
+                .all(|g| terminal::CONSOLAS_BLOCKS.contains(g))
+        );
+    }
+
+    #[test]
     fn easing_covers_the_whole_range() {
         assert_eq!(ease_out(0.0), 0.0);
         assert_eq!(ease_out(1.0), 1.0);
@@ -181,6 +202,9 @@ mod tests {
 
     #[test]
     fn the_spinner_color_stays_on_the_ramp() {
-        assert!((0..100).map(ramp_at).all(|at| (0.0..1.0).contains(&at)));
+        for frames in [SPINNER.len(), LEGACY_SPINNER.len()] {
+            let mut ramp = (0..100).map(|tick| ramp_at(tick, frames));
+            assert!(ramp.all(|at| (0.0..1.0).contains(&at)));
+        }
     }
 }

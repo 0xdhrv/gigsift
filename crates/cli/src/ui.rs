@@ -5,6 +5,7 @@
 //!
 //! `anstream` drops the styling for pipes and `NO_COLOR`. Graphs, shortened paths and
 //! cards need more care: they only appear on a terminal, so piped text stays plain.
+//! What a terminal can draw beyond that, links and glyphs, comes from `terminal`.
 
 use std::env;
 use std::fmt::Display;
@@ -17,7 +18,7 @@ use anstyle::{Ansi256Color, AnsiColor, Color, RgbColor, Style};
 use gigsift_core::size::format_size;
 use terminal_size::{Height, Width, terminal_size};
 
-use crate::motion;
+use crate::{motion, terminal};
 
 pub const ACCENT: Style = AnsiColor::Cyan.on_default();
 pub const GOOD: Style = AnsiColor::Green.on_default();
@@ -57,6 +58,8 @@ const SERIES: [(RgbColor, AnsiColor); 6] = [
 pub const SERIES_COUNT: usize = SERIES.len();
 
 const EIGHTHS: [&str; 8] = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
+/// Consolas has no narrow blocks, so every partial cell is half full.
+const LEGACY_EIGHTHS: [&str; 8] = ["", "▌", "▌", "▌", "▌", "▌", "▌", "▌"];
 
 #[derive(Clone, Copy, PartialEq)]
 enum Depth {
@@ -70,9 +73,17 @@ static DEPTH: LazyLock<Depth> = LazyLock::new(|| {
     let term = env::var("TERM").unwrap_or_default();
     match env::var_os("COLORTERM") {
         Some(value) if value == "truecolor" || value == "24bit" => Depth::Truecolor,
+        _ if terminal::current().truecolor() => Depth::Truecolor,
         _ if term.contains("256color") => Depth::Palette,
         _ => Depth::Ansi,
     }
+});
+/// A link names a file on this machine, so it would open the wrong one over SSH.
+static LINKS: LazyLock<bool> = LazyLock::new(|| {
+    colored()
+        && terminal::current().links()
+        && env::var_os("SSH_CONNECTION").is_none()
+        && env::var_os("SSH_TTY").is_none()
 });
 static WINDOW: LazyLock<(usize, usize)> = LazyLock::new(|| {
     terminal_size().map_or(DEFAULT_WINDOW, |(Width(columns), Height(lines))| {
@@ -98,6 +109,48 @@ pub fn window() -> (usize, usize) {
 /// Styles after any padding, because escape codes would count toward the width.
 pub fn paint(style: Style, text: impl Display) -> String {
     format!("{style}{text}{style:#}")
+}
+
+/// `full`, or `legacy` where the font has no such glyph.
+pub fn glyph(full: &'static str, legacy: &'static str) -> &'static str {
+    if terminal::full_glyphs() {
+        full
+    } else {
+        legacy
+    }
+}
+
+/// `text` that opens `path` when clicked, in terminals known to support links.
+/// Elsewhere it stays plain text, and `anstream` drops the link for pipes.
+pub fn link(path: &str, text: impl Display) -> String {
+    if *LINKS {
+        format!(
+            "\x1b]8;;{}\x1b\\{text}\x1b]8;;\x1b\\",
+            file_url(Path::new(path))
+        )
+    } else {
+        text.to_string()
+    }
+}
+
+fn file_url(path: &Path) -> String {
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_owned());
+    let path = absolute.to_string_lossy().replace('\\', "/");
+    // A Windows path starts with its drive letter.
+    let mut url = String::from(if path.starts_with('/') {
+        "file://"
+    } else {
+        "file:///"
+    });
+    for byte in path.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b':' | b'-' | b'.' | b'_' | b'~' => {
+                url.push(char::from(byte));
+            }
+            _ => url.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    url
 }
 
 /// Rough on purpose: anything that could be double width counts as double, so a
@@ -184,7 +237,7 @@ pub fn header(command: &str, subject: &str) {
     println!();
     let line = format!(
         "  {}  {}",
-        paint(badge(), format!(" ◆ {command} ")),
+        paint(badge(), format!(" {} {command} ", glyph("◆", "♦"))),
         leaf(subject)
     );
     println!("{line}{}", rule(&line));
@@ -235,7 +288,7 @@ pub fn note(text: impl Display) {
 
 /// A verdict or warning, held apart from the numbers by a colored rule.
 pub fn callout(style: Style, title: &str, body: &str, reasons: &[&str]) {
-    let rule = paint(style, "┃");
+    let rule = paint(style, glyph("┃", "│"));
     println!();
     println!("  {rule} {}  {body}", paint(style.bold(), title));
     for reason in reasons {
@@ -407,7 +460,12 @@ fn bar_parts(value: u64, max: u64, cells: usize) -> (String, usize) {
     let eighths = (eighths as usize).clamp(usize::from(value > 0), cells * 8);
     let (full, part) = (eighths / 8, eighths % 8);
     let used = full + usize::from(part > 0);
-    ("█".repeat(full) + EIGHTHS[part], cells - used)
+    let partial = if terminal::full_glyphs() {
+        EIGHTHS
+    } else {
+        LEGACY_EIGHTHS
+    };
+    ("█".repeat(full) + partial[part], cells - used)
 }
 
 /// One number on a card. Sizes and counts roll up to their value on a terminal.
@@ -469,14 +527,20 @@ pub fn stats(stats: &[Stat]) {
 
 fn cards(stats: &[Stat], widths: &[usize], progress: f32) -> Vec<String> {
     let border = |text: String| paint(MUTED, text);
+    // Consolas has no rounded corners.
+    let [top_left, top_right, bottom_left, bottom_right] = if terminal::full_glyphs() {
+        ["╭", "╮", "╰", "╯"]
+    } else {
+        ["┌", "┐", "└", "┘"]
+    };
     let mut rows = [String::from("  "), String::from("  "), String::from("  ")];
     for (stat, width) in stats.iter().zip(widths) {
         let line = width - stat.label.len() - 3;
         rows[0].push_str(&format!(
             "{}{}{} ",
-            border("╭─ ".to_owned()),
+            border(format!("{top_left}─ ")),
             paint(MUTED, stat.label),
-            border(format!(" {}╮", "─".repeat(line))),
+            border(format!(" {}{top_right}", "─".repeat(line))),
         ));
         rows[1].push_str(&format!(
             "{} {} {} ",
@@ -487,7 +551,10 @@ fn cards(stats: &[Stat], widths: &[usize], progress: f32) -> Vec<String> {
             ),
             border("│".to_owned()),
         ));
-        rows[2].push_str(&format!("{} ", border(format!("╰{}╯", "─".repeat(*width)))));
+        rows[2].push_str(&format!(
+            "{} ",
+            border(format!("{bottom_left}{}{bottom_right}", "─".repeat(*width)))
+        ));
     }
     rows.into_iter()
         .map(|row| row.trim_end().to_owned())
@@ -598,6 +665,43 @@ mod tests {
     #[test]
     fn styling_does_not_count_toward_width() {
         assert_eq!(visible_width(&paint(heat(0.5), "█ abc")), 5);
+    }
+
+    #[test]
+    fn the_fallback_bar_is_all_in_the_console_font() {
+        let glyphs = LEGACY_EIGHTHS.concat();
+        assert!(
+            glyphs
+                .chars()
+                .all(|g| terminal::CONSOLAS_BLOCKS.contains(g))
+        );
+    }
+
+    #[test]
+    fn a_link_does_not_count_toward_width() {
+        let url = file_url(Path::new("/tmp"));
+        assert_eq!(
+            visible_width(&format!("\x1b]8;;{url}\x1b\\name\x1b]8;;\x1b\\")),
+            4
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_url_escapes_what_a_url_cannot_hold() {
+        assert_eq!(
+            file_url(Path::new("/tmp/a b/ü#1")),
+            "file:///tmp/a%20b/%C3%BC%231"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_file_url_starts_with_its_drive() {
+        assert_eq!(
+            file_url(Path::new(r"C:\Users\a b")),
+            "file:///C:/Users/a%20b"
+        );
     }
 
     #[test]

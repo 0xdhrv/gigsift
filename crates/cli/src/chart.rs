@@ -1,9 +1,11 @@
 //! An area chart built from block characters, which stay solid in any terminal font
 //! and give each cell eight levels of height.
 
-use crate::ui;
+use crate::{terminal, ui};
 
 const LEVELS: [&str; 9] = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+/// Consolas only has the half block, so cells fill in halves.
+const LEGACY_LEVELS: [&str; 9] = [" ", " ", " ", "▄", "▄", "▄", "▄", "█", "█"];
 
 /// A point from 0 to 1 on each axis, with `y` growing upward.
 pub type Point = (f32, f32);
@@ -63,7 +65,12 @@ fn cell(column: Option<&Column>, from_bottom: usize, height: usize) -> String {
     };
     let filled =
         (column.level.clamp(0.0, 1.0) * height as f32 - from_bottom as f32).clamp(0.0, 1.0);
-    let glyph = LEVELS[(filled * 8.0).round() as usize];
+    let levels = if terminal::full_glyphs() {
+        LEVELS
+    } else {
+        LEGACY_LEVELS
+    };
+    let glyph = levels[(filled * 8.0).round() as usize];
     let style = ui::heat((from_bottom + 1) as f32 / height as f32);
     let style = if column.projected {
         style.dimmed()
@@ -89,6 +96,16 @@ mod tests {
             .chars()
             .filter(|glyph| *glyph != ' ')
             .count()
+    }
+
+    #[test]
+    fn the_fallback_levels_are_all_in_the_console_font() {
+        let glyphs = LEGACY_LEVELS.concat();
+        assert!(
+            glyphs
+                .chars()
+                .all(|g| terminal::CONSOLAS_BLOCKS.contains(g))
+        );
     }
 
     #[test]
