@@ -460,12 +460,15 @@ fn bar_parts(value: u64, max: u64, cells: usize) -> (String, usize) {
     let eighths = (eighths as usize).clamp(usize::from(value > 0), cells * 8);
     let (full, part) = (eighths / 8, eighths % 8);
     let used = full + usize::from(part > 0);
-    let partial = if terminal::full_glyphs() {
+    ("█".repeat(full) + partial_cells()[part], cells - used)
+}
+
+fn partial_cells() -> [&'static str; 8] {
+    if terminal::full_glyphs() {
         EIGHTHS
     } else {
         LEGACY_EIGHTHS
-    };
-    ("█".repeat(full) + partial[part], cells - used)
+    }
 }
 
 /// One number on a card. Sizes and counts roll up to their value on a terminal.
@@ -632,7 +635,8 @@ mod tests {
 
     #[test]
     fn a_tiny_value_still_draws_a_sliver() {
-        assert_eq!(bar_parts(1, u64::MAX, CELLS), ("▏".to_owned(), CELLS - 1));
+        let sliver = partial_cells()[1].to_owned();
+        assert_eq!(bar_parts(1, u64::MAX, CELLS), (sliver, CELLS - 1));
     }
 
     #[test]
